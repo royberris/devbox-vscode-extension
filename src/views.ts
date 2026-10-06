@@ -22,7 +22,7 @@ const STATE: Record<AgentState | 'exited' | 'unknown', { text: string; icon: vsc
   idle: { text: 'done, your turn', icon: new vscode.ThemeIcon('pass', new vscode.ThemeColor('charts.green')) },
   ended: { text: 'ended', icon: new vscode.ThemeIcon('circle-outline') },
   exited: { text: 'agent exited', icon: new vscode.ThemeIcon('circle-slash', new vscode.ThemeColor('disabledForeground')) },
-  unknown: { text: 'running', icon: new vscode.ThemeIcon('robot') },
+  unknown: { text: 'agent active · no status', icon: new vscode.ThemeIcon('robot') },
 };
 
 export function sessionState(s: Session): keyof typeof STATE {

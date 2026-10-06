@@ -528,11 +528,12 @@ export class SessionActions {
     return added;
   }
 
-  private async switchToAgentWorkspace(s: Session, dir: string): Promise<void> {
+  private async switchToAgentWorkspace(s: Session, dir: string, confirmed = false): Promise<void> {
     if (this.declinedWorkspaceSwitch) return;
     const file = agentWorkspaceFile();
     const open = 'Open Agent Workspace';
-    const pick = await vscode.window.showInformationMessage(
+    const notNow = 'Not Now';
+    const pick = confirmed ? open : await vscode.window.showInformationMessage(
       'Show agent worktrees in the explorer?',
       {
         modal: true,
@@ -543,9 +544,18 @@ export class SessionActions {
           `The terminal is already open. Set "devboxAgents.focusMode" to "terminalOnly" to stop asking.`,
       },
       open,
+      notNow,
     );
     if (pick !== open) {
-      this.declinedWorkspaceSwitch = true; // don't ask again in this window
+      // Escape or closing the dialog asks again on the next focus; only "Not Now" sticks for this window.
+      this.log.appendLine(`[focus] workspace switch ${pick === notNow ? 'declined for this window' : 'dismissed'}; ${tildify(dir)} not shown in the explorer`);
+      if (pick !== notNow) return;
+      this.declinedWorkspaceSwitch = true;
+      const show = 'Show in Explorer';
+      if ((await vscode.window.showInformationMessage('Agent worktrees stay out of the explorer in this window.', show)) === show) {
+        this.declinedWorkspaceSwitch = false;
+        await this.switchToAgentWorkspace(s, dir, true);
+      }
       return;
     }
 

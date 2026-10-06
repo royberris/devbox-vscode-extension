@@ -107,6 +107,7 @@ export function activate(context: vscode.ExtensionContext): void {
     if (firstSnapshot) {
       firstSnapshot = false;
       void actions.resumePendingFocus();
+      void offerHooks(cfg, log, context.globalState);
       for (const s of snap.statuses) seen.set(s.key, s);
       if (waiting.length) {
         void vscode.window
@@ -200,6 +201,36 @@ export function activate(context: vscode.ExtensionContext): void {
 
 export function deactivate(): void {}
 
+const HOOKS_PROMPT_DISMISSED = 'devboxAgents.hooksPromptDismissed';
+
+/** True when Claude is enabled but its status hooks (or the script they call) are missing. */
+function claudeHooksMissing(c: ReturnType<typeof readConfig>): boolean {
+  if (!c.agents.claude.enabled) return false;
+  const script = defaultHookScriptPath();
+  if (!fs.existsSync(script)) return true;
+  try {
+    const settings = path.join(c.claudeConfigDir, 'settings.json');
+    return mergeClaudeHooks(fs.existsSync(settings) ? fs.readFileSync(settings, 'utf8') : undefined, script) !== undefined;
+  } catch {
+    return false; // unreadable settings: installing would fail too
+  }
+}
+
+/** Without hooks every session shows "no status"; offer to install them (again, e.g. after a setup script reset settings.json). */
+async function offerHooks(cfg: typeof readConfig, log: vscode.OutputChannel, state: vscode.Memento): Promise<void> {
+  if (state.get<boolean>(HOOKS_PROMPT_DISMISSED) || !claudeHooksMissing(cfg())) return;
+  log.appendLine('[hooks] Claude status hooks are not installed');
+  const install = 'Install';
+  const never = "Don't Ask Again";
+  const pick = await vscode.window.showInformationMessage(
+    'Devbox Agents cannot see whether agents are working, waiting for you or done: the status hooks are not installed.',
+    install,
+    never,
+  );
+  if (pick === install) await installHooks(cfg, log);
+  else if (pick === never) await state.update(HOOKS_PROMPT_DISMISSED, true);
+}
+
 async function installHooks(cfg: typeof readConfig, log: vscode.OutputChannel): Promise<void> {
   const c = cfg();
   const script = defaultHookScriptPath();
@@ -266,5 +297,5 @@ async function installHooks(cfg: typeof readConfig, log: vscode.OutputChannel): 
     return void vscode.window.showErrorMessage(`Installing hooks failed: ${(e as Error).message}`);
   }
   log.appendLine(`[hooks] installed: ${done.join(', ')}`);
-  void vscode.window.showInformationMessage(`Installed: ${done.join(', ')}.`);
+  void vscode.window.showInformationMessage(`Installed: ${done.join(', ')}. Restart running agents to pick up the hooks.`);
 }

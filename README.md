@@ -114,7 +114,7 @@ Then:
 2. It adds hooks for `Notification`, `Stop`, `UserPromptSubmit`, `PostToolUse`, `SessionStart` and `SessionEnd` to `<claude configDir>/settings.json`, keeping everything already in there. A backup is saved as `settings.json.devbox-agents.bak`.
 3. It adds `notify = [".../agent-hook.sh", "codex"]` to Codex's `config.toml`, but only if there is no `notify` yet. Codex reports only finished turns this way, not approval requests.
 
-The hooks apply to agents started after the install. If your agent config is generated (dotfiles, provisioning scripts), add the hooks there instead, or the next run may remove them:
+Without the hooks a session shows "agent active · no status", and the extension offers to install them when it starts (again after a provisioning run removed them; "Don't Ask Again" stops that). The hooks apply to agents started after the install. If your agent config is generated (dotfiles, provisioning scripts), add the hooks there instead, or the next run may remove them:
 
 ```jsonc
 // ~/.claude/settings.json
