@@ -1,0 +1,699 @@
+{
+  "name": "devbox-agents",
+  "displayName": "Devbox Agents",
+  "description": "Start, follow and resume AI coding agents (Claude Code, Codex) in tmux sessions and git worktrees on your remote dev box. Agents keep running when your laptop is closed.",
+  "version": "0.1.0",
+  "publisher": "royberris",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/royberris/devbox-vscode-extension"
+  },
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": [
+    "Other",
+    "AI"
+  ],
+  "keywords": [
+    "claude",
+    "codex",
+    "agents",
+    "tmux",
+    "worktree",
+    "remote-ssh"
+  ],
+  "extensionKind": [
+    "workspace"
+  ],
+  "main": "./dist/extension.js",
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "devboxAgents",
+          "title": "Devbox Agents",
+          "icon": "media/robot.svg"
+        }
+      ]
+    },
+    "views": {
+      "devboxAgents": [
+        {
+          "id": "devboxAgents.sessions",
+          "name": "Sessions"
+        },
+        {
+          "id": "devboxAgents.repos",
+          "name": "Repositories"
+        },
+        {
+          "id": "devboxAgents.processes",
+          "name": "Agent Processes"
+        },
+        {
+          "id": "devboxAgents.history",
+          "name": "History"
+        }
+      ]
+    },
+    "viewsWelcome": [
+      {
+        "view": "devboxAgents.sessions",
+        "contents": "No agent sessions yet.\n[New Agent Session](command:devboxAgents.newSession)\nEach session gets its own git worktree and tmux session, so the agent keeps running when you disconnect.",
+        "when": "devboxAgents.available"
+      },
+      {
+        "view": "devboxAgents.sessions",
+        "contents": "tmux was not found on this machine. Devbox Agents runs on the machine where your code lives (e.g. via Remote-SSH) and needs tmux there.\n[Open Settings](command:devboxAgents.openSettings)",
+        "when": "!devboxAgents.available"
+      },
+      {
+        "view": "devboxAgents.processes",
+        "contents": "No claude/codex processes running."
+      },
+      {
+        "view": "devboxAgents.history",
+        "contents": "No agent chats found in the configured period."
+      },
+      {
+        "view": "devboxAgents.repos",
+        "contents": "No repositories found in the configured repo roots.\n[Add Repository](command:devboxAgents.addRepository)\n[Open Settings](command:devboxAgents.openSettings)"
+      }
+    ],
+    "commands": [
+      {
+        "command": "devboxAgents.newSession",
+        "title": "New Agent Session",
+        "category": "Devbox Agents",
+        "icon": "$(add)"
+      },
+      {
+        "command": "devboxAgents.refresh",
+        "title": "Refresh",
+        "category": "Devbox Agents",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "devboxAgents.focusSession",
+        "title": "Focus Session",
+        "category": "Devbox Agents",
+        "icon": "$(target)"
+      },
+      {
+        "command": "devboxAgents.openTerminal",
+        "title": "Open Terminal",
+        "category": "Devbox Agents",
+        "icon": "$(terminal)"
+      },
+      {
+        "command": "devboxAgents.connectIde",
+        "title": "Connect Claude to Editor (/ide)",
+        "category": "Devbox Agents",
+        "icon": "$(diff)"
+      },
+      {
+        "command": "devboxAgents.stopSession",
+        "title": "Stop Session (keep worktree)",
+        "category": "Devbox Agents",
+        "icon": "$(debug-stop)"
+      },
+      {
+        "command": "devboxAgents.cleanupSession",
+        "title": "Clean Up (stop session, remove worktree)",
+        "category": "Devbox Agents",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "devboxAgents.startInWorktree",
+        "title": "Start Agent in Worktree",
+        "category": "Devbox Agents",
+        "icon": "$(play)"
+      },
+      {
+        "command": "devboxAgents.removeWorktree",
+        "title": "Remove Worktree",
+        "category": "Devbox Agents",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "devboxAgents.resumeChat",
+        "title": "Resume Chat",
+        "category": "Devbox Agents",
+        "icon": "$(debug-continue)"
+      },
+      {
+        "command": "devboxAgents.openTranscript",
+        "title": "Open Raw Transcript",
+        "category": "Devbox Agents",
+        "icon": "$(file-code)"
+      },
+      {
+        "command": "devboxAgents.copyChatId",
+        "title": "Copy Chat ID",
+        "category": "Devbox Agents"
+      },
+      {
+        "command": "devboxAgents.revealProcess",
+        "title": "Go to Session",
+        "category": "Devbox Agents",
+        "icon": "$(target)"
+      },
+      {
+        "command": "devboxAgents.terminateProcess",
+        "title": "Terminate Process (SIGTERM)…",
+        "category": "Devbox Agents",
+        "icon": "$(close)"
+      },
+      {
+        "command": "devboxAgents.copyPid",
+        "title": "Copy PID",
+        "category": "Devbox Agents"
+      },
+      {
+        "command": "devboxAgents.installHooks",
+        "title": "Install Status Hooks (waiting-agent notifications)…",
+        "category": "Devbox Agents"
+      },
+      {
+        "command": "devboxAgents.openSettings",
+        "title": "Open Settings",
+        "category": "Devbox Agents",
+        "icon": "$(gear)"
+      },
+      {
+        "command": "devboxAgents.showLog",
+        "title": "Show Log",
+        "category": "Devbox Agents"
+      },
+      {
+        "command": "devboxAgents.startClaudeInRepo",
+        "title": "Start Claude Code on Main Checkout",
+        "category": "Devbox Agents",
+        "icon": "$(sparkle)"
+      },
+      {
+        "command": "devboxAgents.startCodexInRepo",
+        "title": "Start Codex on Main Checkout",
+        "category": "Devbox Agents",
+        "icon": "$(hubot)"
+      },
+      {
+        "command": "devboxAgents.newSessionForRepo",
+        "title": "New Worktree Session…",
+        "category": "Devbox Agents",
+        "icon": "$(git-branch)"
+      },
+      {
+        "command": "devboxAgents.addRepository",
+        "title": "Add Repository (clone on server)…",
+        "category": "Devbox Agents",
+        "icon": "$(repo-clone)"
+      },
+      {
+        "command": "devboxAgents.setAlias",
+        "title": "Set Alias…",
+        "category": "Devbox Agents",
+        "icon": "$(tag)"
+      },
+      {
+        "command": "devboxAgents.trustFolders",
+        "title": "Trust Worktrees and Repo Folders…",
+        "category": "Devbox Agents",
+        "icon": "$(shield)"
+      }
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "devboxAgents.addRepository",
+          "when": "view == devboxAgents.repos",
+          "group": "navigation@1"
+        },
+        {
+          "command": "devboxAgents.newSession",
+          "when": "view == devboxAgents.sessions",
+          "group": "navigation@1"
+        },
+        {
+          "command": "devboxAgents.refresh",
+          "when": "view =~ /^devboxAgents\\./",
+          "group": "navigation@9"
+        },
+        {
+          "command": "devboxAgents.installHooks",
+          "when": "view == devboxAgents.sessions"
+        },
+        {
+          "command": "devboxAgents.openSettings",
+          "when": "view =~ /^devboxAgents\\./"
+        },
+        {
+          "command": "devboxAgents.trustFolders",
+          "when": "view == devboxAgents.sessions || view == devboxAgents.repos"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "devboxAgents.newSession",
+          "when": "viewItem == repo",
+          "group": "inline@1"
+        },
+        {
+          "command": "devboxAgents.openTerminal",
+          "when": "viewItem =~ /^session/",
+          "group": "inline@1"
+        },
+        {
+          "command": "devboxAgents.cleanupSession",
+          "when": "viewItem =~ /^session\\.managed/",
+          "group": "inline@3"
+        },
+        {
+          "command": "devboxAgents.focusSession",
+          "when": "viewItem =~ /^session/",
+          "group": "1_open@1"
+        },
+        {
+          "command": "devboxAgents.openTerminal",
+          "when": "viewItem =~ /^session/",
+          "group": "1_open@2"
+        },
+        {
+          "command": "devboxAgents.connectIde",
+          "when": "viewItem =~ /^session.*\\.claude/",
+          "group": "1_open@3"
+        },
+        {
+          "command": "devboxAgents.stopSession",
+          "when": "viewItem =~ /^session/",
+          "group": "9_stop@1"
+        },
+        {
+          "command": "devboxAgents.cleanupSession",
+          "when": "viewItem =~ /^session\\.managed/",
+          "group": "9_stop@2"
+        },
+        {
+          "command": "devboxAgents.startInWorktree",
+          "when": "viewItem == worktree",
+          "group": "inline@1"
+        },
+        {
+          "command": "devboxAgents.removeWorktree",
+          "when": "viewItem == worktree",
+          "group": "inline@2"
+        },
+        {
+          "command": "devboxAgents.startInWorktree",
+          "when": "viewItem == worktree",
+          "group": "1_open@1"
+        },
+        {
+          "command": "devboxAgents.removeWorktree",
+          "when": "viewItem == worktree",
+          "group": "9_stop@1"
+        },
+        {
+          "command": "devboxAgents.resumeChat",
+          "when": "viewItem == chat",
+          "group": "inline@1"
+        },
+        {
+          "command": "devboxAgents.resumeChat",
+          "when": "viewItem == chat",
+          "group": "1_open@1"
+        },
+        {
+          "command": "devboxAgents.openTranscript",
+          "when": "viewItem == chat",
+          "group": "1_open@2"
+        },
+        {
+          "command": "devboxAgents.copyChatId",
+          "when": "viewItem == chat",
+          "group": "2_copy@1"
+        },
+        {
+          "command": "devboxAgents.revealProcess",
+          "when": "viewItem =~ /^process\\.tmux/",
+          "group": "inline@1"
+        },
+        {
+          "command": "devboxAgents.revealProcess",
+          "when": "viewItem =~ /^process\\.tmux/",
+          "group": "1_open@1"
+        },
+        {
+          "command": "devboxAgents.copyPid",
+          "when": "viewItem =~ /^process/",
+          "group": "2_copy@1"
+        },
+        {
+          "command": "devboxAgents.terminateProcess",
+          "when": "viewItem =~ /^process/",
+          "group": "9_stop@1"
+        },
+        {
+          "command": "devboxAgents.startClaudeInRepo",
+          "when": "viewItem == repoInfo && config.devboxAgents.claude.enabled",
+          "group": "inline@1"
+        },
+        {
+          "command": "devboxAgents.startCodexInRepo",
+          "when": "viewItem == repoInfo && config.devboxAgents.codex.enabled",
+          "group": "inline@2"
+        },
+        {
+          "command": "devboxAgents.newSessionForRepo",
+          "when": "viewItem == repoInfo",
+          "group": "inline@3"
+        },
+        {
+          "command": "devboxAgents.startClaudeInRepo",
+          "when": "viewItem == repoInfo && config.devboxAgents.claude.enabled",
+          "group": "1_start@1"
+        },
+        {
+          "command": "devboxAgents.startCodexInRepo",
+          "when": "viewItem == repoInfo && config.devboxAgents.codex.enabled",
+          "group": "1_start@2"
+        },
+        {
+          "command": "devboxAgents.newSessionForRepo",
+          "when": "viewItem == repoInfo",
+          "group": "1_start@3"
+        },
+        {
+          "command": "devboxAgents.setAlias",
+          "when": "viewItem == repoInfo",
+          "group": "2_manage@1"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "devboxAgents.focusSession",
+          "when": "false"
+        },
+        {
+          "command": "devboxAgents.openTerminal",
+          "when": "false"
+        },
+        {
+          "command": "devboxAgents.connectIde",
+          "when": "false"
+        },
+        {
+          "command": "devboxAgents.stopSession",
+          "when": "false"
+        },
+        {
+          "command": "devboxAgents.cleanupSession",
+          "when": "false"
+        },
+        {
+          "command": "devboxAgents.startInWorktree",
+          "when": "false"
+        },
+        {
+          "command": "devboxAgents.removeWorktree",
+          "when": "false"
+        },
+        {
+          "command": "devboxAgents.resumeChat",
+          "when": "false"
+        },
+        {
+          "command": "devboxAgents.openTranscript",
+          "when": "false"
+        },
+        {
+          "command": "devboxAgents.copyChatId",
+          "when": "false"
+        },
+        {
+          "command": "devboxAgents.revealProcess",
+          "when": "false"
+        },
+        {
+          "command": "devboxAgents.terminateProcess",
+          "when": "false"
+        },
+        {
+          "command": "devboxAgents.copyPid",
+          "when": "false"
+        },
+        {
+          "command": "devboxAgents.startClaudeInRepo",
+          "when": "false"
+        },
+        {
+          "command": "devboxAgents.startCodexInRepo",
+          "when": "false"
+        },
+        {
+          "command": "devboxAgents.newSessionForRepo",
+          "when": "false"
+        },
+        {
+          "command": "devboxAgents.setAlias",
+          "when": "false"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Devbox Agents",
+      "properties": {
+        "devboxAgents.repoRoots": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [
+            "~/repos"
+          ],
+          "scope": "machine",
+          "markdownDescription": "Directories on the server that contain your git repositories. Each root is scanned up to `#devboxAgents.repoScanDepth#` levels deep for directories with a `.git` folder (e.g. `~/repos/<org>/<repo>` needs depth 2)."
+        },
+        "devboxAgents.repoScanDepth": {
+          "type": "integer",
+          "default": 2,
+          "minimum": 1,
+          "maximum": 4,
+          "scope": "machine",
+          "description": "How many directory levels below each repo root to look for repositories."
+        },
+        "devboxAgents.extraRepos": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "scope": "machine",
+          "description": "Additional repository paths on the server that are not below a repo root."
+        },
+        "devboxAgents.worktreesRoot": {
+          "type": "string",
+          "default": "~/worktrees",
+          "scope": "machine",
+          "markdownDescription": "Where new worktrees are created: `<worktreesRoot>/<repo>/<slug>`. Keep this **outside** your repositories (tools that search upwards, like `Directory.Build.props`, `tsconfig.json` or `pnpm-workspace.yaml`, would otherwise find the main repo's files) and outside the repo roots (or they would show up as repositories)."
+        },
+        "devboxAgents.branchPrefix": {
+          "type": "string",
+          "default": "agent/",
+          "scope": "machine",
+          "description": "Prefix for the branch created for every new session (branch = prefix + slug)."
+        },
+        "devboxAgents.defaultBaseBranch": {
+          "type": "string",
+          "default": "main",
+          "scope": "machine",
+          "markdownDescription": "Base branch for new sessions: `origin/<name>` when that exists, otherwise the local branch. You can still pick another base in the New Agent Session picker."
+        },
+        "devboxAgents.fetchBeforeNewSession": {
+          "type": "boolean",
+          "default": true,
+          "scope": "machine",
+          "markdownDescription": "Run `git fetch --prune` before creating a worktree from a remote branch (e.g. `origin/main`), and before listing branches when you change the base. Failures (e.g. no network) are ignored."
+        },
+        "devboxAgents.repoAliases": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "default": {},
+          "scope": "machine",
+          "markdownDescription": "Short names used in tmux session names, keyed by repository folder name. Example: `{ \"web_MyBigProject\": \"big\" }` gives sessions like `big-fix-login`. Without an alias the repository folder name is used."
+        },
+        "devboxAgents.claude.enabled": {
+          "type": "boolean",
+          "default": true,
+          "scope": "machine",
+          "description": "Offer Claude Code when starting a new session."
+        },
+        "devboxAgents.claude.command": {
+          "type": "string",
+          "default": "claude",
+          "scope": "machine",
+          "description": "Command that starts Claude Code on the server (name on PATH of a login shell, or absolute path)."
+        },
+        "devboxAgents.claude.args": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "scope": "machine",
+          "description": "Extra arguments passed to Claude Code for new and resumed sessions."
+        },
+        "devboxAgents.claude.configDir": {
+          "type": "string",
+          "default": "",
+          "scope": "machine",
+          "markdownDescription": "Claude Code config directory (history is read from `<configDir>/projects`, hooks are installed in `<configDir>/settings.json`). Empty: `$CLAUDE_CONFIG_DIR` or `~/.claude`."
+        },
+        "devboxAgents.codex.enabled": {
+          "type": "boolean",
+          "default": true,
+          "scope": "machine",
+          "description": "Offer Codex when starting a new session."
+        },
+        "devboxAgents.codex.command": {
+          "type": "string",
+          "default": "codex",
+          "scope": "machine",
+          "description": "Command that starts Codex on the server (name on PATH of a login shell, or absolute path)."
+        },
+        "devboxAgents.codex.args": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "scope": "machine",
+          "description": "Extra arguments passed to Codex for new and resumed sessions."
+        },
+        "devboxAgents.codex.home": {
+          "type": "string",
+          "default": "",
+          "scope": "machine",
+          "markdownDescription": "Codex home directory (history is read from `<home>/sessions`). Empty: `$CODEX_HOME` or `~/.codex`."
+        },
+        "devboxAgents.tmuxPath": {
+          "type": "string",
+          "default": "tmux",
+          "scope": "machine",
+          "description": "tmux executable on the server."
+        },
+        "devboxAgents.shell": {
+          "type": "string",
+          "default": "",
+          "scope": "machine",
+          "markdownDescription": "Shell used inside agent tmux sessions. The agent runs in a login shell (`<shell> -lc`), and when it exits the shell stays open. Empty: `$SHELL` or `/bin/bash`."
+        },
+        "devboxAgents.sessionEnv": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "default": {},
+          "scope": "machine",
+          "description": "Extra environment variables for agent tmux sessions."
+        },
+        "devboxAgents.focusMode": {
+          "type": "string",
+          "enum": [
+            "swapFolder",
+            "addFolder",
+            "newWindow",
+            "terminalOnly"
+          ],
+          "enumDescriptions": [
+            "Replace any other agent worktree folder in this window with the focused session's worktree; your other folders stay.",
+            "Add the session's worktree as an extra workspace folder and keep the others.",
+            "Open the worktree in a new VS Code window.",
+            "Only open the terminal; leave workspace folders alone."
+          ],
+          "default": "swapFolder",
+          "description": "What happens with the explorer when you focus a session."
+        },
+        "devboxAgents.terminalLocation": {
+          "type": "string",
+          "enum": [
+            "panel",
+            "editor"
+          ],
+          "default": "panel",
+          "description": "Where session terminals open."
+        },
+        "devboxAgents.connectIdeOnFocus": {
+          "type": "boolean",
+          "default": false,
+          "markdownDescription": "Type `/ide` into a Claude session when it is focused, so diffs show up in the editor. Requires the Claude Code extension in this window."
+        },
+        "devboxAgents.refreshInterval": {
+          "type": "integer",
+          "default": 5,
+          "minimum": 1,
+          "description": "Seconds between refreshes of sessions and processes."
+        },
+        "devboxAgents.history.days": {
+          "type": "integer",
+          "default": 30,
+          "minimum": 1,
+          "description": "Show chats from the last N days."
+        },
+        "devboxAgents.history.maxPerGroup": {
+          "type": "integer",
+          "default": 50,
+          "minimum": 1,
+          "description": "Maximum number of chats per repository/worktree group."
+        },
+        "devboxAgents.statusDir": {
+          "type": "string",
+          "default": "",
+          "scope": "machine",
+          "markdownDescription": "Directory where the status hook writes agent states. Empty: `$XDG_STATE_HOME/devbox-agents/status` or `~/.local/state/devbox-agents/status`."
+        },
+        "devboxAgents.notify": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "waiting",
+              "idle"
+            ]
+          },
+          "default": [
+            "waiting",
+            "idle"
+          ],
+          "markdownDescription": "Show a notification when an agent changes to one of these states (requires the status hooks): `waiting` = asks for permission or input, `idle` = finished its turn."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "build": "node esbuild.mjs",
+    "watch": "node esbuild.mjs --watch",
+    "typecheck": "tsc --noEmit",
+    "test": "tsc -p tsconfig.test.json && node --test out/test/*.test.js",
+    "package": "npm run typecheck && node esbuild.mjs --production && vsce package --no-dependencies",
+    "vscode:prepublish": "node esbuild.mjs --production"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "@types/vscode": "^1.90.0",
+    "@vscode/vsce": "^3.0.0",
+    "esbuild": "^0.28.0",
+    "typescript": "^5.9.0"
+  },
+  "bugs": {
+    "url": "https://github.com/royberris/devbox-vscode-extension/issues"
+  },
+  "homepage": "https://github.com/royberris/devbox-vscode-extension#readme"
+}
