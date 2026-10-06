@@ -18,6 +18,11 @@ function agentWorkspaceFile(): string {
   return path.join(base, 'devbox-agents', 'agents.code-workspace');
 }
 
+function inAgentWorkspace(): boolean {
+  const ws = vscode.workspace.workspaceFile;
+  return ws?.scheme === 'file' && ws.fsPath === agentWorkspaceFile();
+}
+
 function workspaceFolderName(worktreesRoot: string, dir: string): string | undefined {
   return isWithin(dir, worktreesRoot) ? `${path.relative(worktreesRoot, dir).split(path.sep).join(' › ')} (agent)` : undefined;
 }
@@ -25,6 +30,8 @@ function workspaceFolderName(worktreesRoot: string, dir: string): string | undef
 /** Everything that changes state on the server: creating, focusing, stopping and cleaning up sessions. */
 export class SessionActions {
   private declinedWorkspaceSwitch = false;
+  /** Folder updates run one at a time: VS Code ignores a new one until the previous has applied. */
+  private folderSync: Promise<unknown> = Promise.resolve();
 
   constructor(
     private readonly model: Model,
@@ -495,6 +502,17 @@ export class SessionActions {
       await vscode.commands.executeCommand('vscode.openFolder', uri, { forceNewWindow: true });
       return false;
     }
+    if (cfg.focusMode === 'activeSessions') {
+      if (!s.managed) return false; // only agent sessions get a folder; others just get the terminal
+      if (!inAgentWorkspace()) {
+        await this.switchToAgentWorkspace(s, dir);
+        return false;
+      }
+      const added = await this.syncWorkspaceFolders(dir);
+      if (added && isWithin(dir, cfg.worktreesRoot)) void this.trustTip();
+      await this.revealFolder(vscode.Uri.file(dir));
+      return added;
+    }
     const folders = vscode.workspace.workspaceFolders ?? [];
     const present = folders.some((f) => f.uri.fsPath === dir);
     if (!present && (!vscode.workspace.workspaceFile || folders.length === 0)) {
@@ -523,9 +541,63 @@ export class SessionActions {
         if (isWithin(dir, cfg.worktreesRoot)) void this.trustTip();
       }
     }
+    await this.revealFolder(uri);
+    return added;
+  }
+
+  private async revealFolder(uri: vscode.Uri): Promise<void> {
     await vscode.commands.executeCommand('workbench.view.explorer');
     await vscode.commands.executeCommand('revealInExplorer', uri);
-    return added;
+  }
+
+  /** Directories of the running sessions started by this extension: their worktree, or the checkout. */
+  private activeSessionDirs(): string[] {
+    return [...new Set(this.model.allSessions().flatMap((s) => (s.managed && s.dir && fs.existsSync(s.dir) ? [s.dir] : [])))];
+  }
+
+  /**
+   * activeSessions mode: makes the agent workspace show exactly the running sessions' directories
+   * (plus `extra`, a session that may not be in the snapshot yet). Existing folders keep their place
+   * and new ones go last, so folder 0 (changing it restarts the extension host) only changes when its
+   * session ends. Returns true if `extra` was added.
+   */
+  syncWorkspaceFolders(extra?: string): Promise<boolean> {
+    const run = this.folderSync.then(() => this.applyWorkspaceFolders(extra));
+    this.folderSync = run.catch(() => undefined);
+    return run;
+  }
+
+  private async applyWorkspaceFolders(extra?: string): Promise<boolean> {
+    if (this.cfg().focusMode !== 'activeSessions' || !inAgentWorkspace()) return false;
+    const snap = this.model.snapshot;
+    if (snap.error || !snap.tmuxAvailable) return false; // a failed read is not "no sessions"
+    const current = (vscode.workspace.workspaceFolders ?? []).map((f) => f.uri.fsPath);
+    const active = this.activeSessionDirs();
+    if (extra && !active.includes(extra)) active.push(extra);
+    const want = [...current.filter((d) => active.includes(d)), ...active.filter((d) => !current.includes(d))];
+    if (want.length === current.length && want.every((d, i) => d === current[i])) return false;
+
+    const start = current.length && want[0] === current[0] ? 1 : 0;
+    const root = this.cfg().worktreesRoot;
+    const changed = new Promise<void>((resolve) => {
+      const sub = vscode.workspace.onDidChangeWorkspaceFolders(() => (sub.dispose(), resolve()));
+      setTimeout(() => (sub.dispose(), resolve()), 3000);
+    });
+    const ok = vscode.workspace.updateWorkspaceFolders(
+      start,
+      current.length - start,
+      ...want.slice(start).map((d) => ({ uri: vscode.Uri.file(d), name: workspaceFolderName(root, d) ?? path.basename(d) })),
+    );
+    const removed = current.filter((d) => !want.includes(d));
+    const added = want.filter((d) => !current.includes(d));
+    this.log.appendLine(
+      ok
+        ? `[focus] workspace folders: ${[...added.map((d) => `+${tildify(d)}`), ...removed.map((d) => `-${tildify(d)}`)].join(' ')}`
+        : '[focus] could not update workspace folders',
+    );
+    if (!ok) return false;
+    await changed;
+    return !!extra && added.includes(extra);
   }
 
   private async switchToAgentWorkspace(s: Session, dir: string, confirmed = false): Promise<void> {
@@ -567,8 +639,12 @@ export class SessionActions {
     } catch {
       // new file, or not plain JSON: start fresh
     }
-    // Folder 0 is a stable anchor (changing it restarts the extension host); agent worktrees go after it.
-    ws.folders = [...(anchor && anchor !== dir ? [{ path: anchor }] : []), { path: dir, name: workspaceFolderName(this.cfg().worktreesRoot, dir) }];
+    const name = (d: string) => workspaceFolderName(this.cfg().worktreesRoot, d) ?? path.basename(d);
+    // activeSessions: only the running sessions. Otherwise folder 0 is a stable anchor (changing it
+    // restarts the extension host) and agent worktrees go after it.
+    ws.folders = this.cfg().focusMode === 'activeSessions'
+      ? [dir, ...this.activeSessionDirs().filter((d) => d !== dir)].map((d) => ({ path: d, name: name(d) }))
+      : [...(anchor && anchor !== dir ? [{ path: anchor }] : []), { path: dir, name: workspaceFolderName(this.cfg().worktreesRoot, dir) }];
     try {
       fs.mkdirSync(path.dirname(file), { recursive: true });
       fs.writeFileSync(file, JSON.stringify(ws, null, 2) + '\n');

@@ -92,7 +92,7 @@ Then:
 | `devboxAgents.tmuxPath` | `tmux` | tmux binary |
 | `devboxAgents.shell` | `$SHELL` | Login shell the agent runs in; stays open after the agent exits |
 | `devboxAgents.sessionEnv` | `{}` | Extra environment variables for agent sessions |
-| `devboxAgents.focusMode` | `swapFolder` | `swapFolder`, `addFolder`, `newWindow` or `terminalOnly` |
+| `devboxAgents.focusMode` | `activeSessions` | `activeSessions` (the agent workspace shows only the running sessions' worktrees), `swapFolder`, `addFolder`, `newWindow` or `terminalOnly` |
 | `devboxAgents.terminalLocation` | `panel` | `panel` or `editor` |
 | `devboxAgents.connectIdeOnFocus` | `false` | Type `/ide` into a Claude session when it is focused |
 | `devboxAgents.refreshInterval` | `5` | Seconds between refreshes |

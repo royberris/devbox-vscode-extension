@@ -25,7 +25,7 @@ export interface Config {
   tmuxPath: string;
   shell: string;
   sessionEnv: Record<string, string>;
-  focusMode: 'swapFolder' | 'addFolder' | 'newWindow' | 'terminalOnly';
+  focusMode: 'activeSessions' | 'swapFolder' | 'addFolder' | 'newWindow' | 'terminalOnly';
   terminalLocation: 'panel' | 'editor';
   connectIdeOnFocus: boolean;
   refreshInterval: number;
@@ -58,7 +58,7 @@ export function readConfig(): Config {
     tmuxPath: expandHome(str('tmuxPath', 'tmux')),
     shell: expandHome(str('shell', process.env.SHELL || '/bin/bash')),
     sessionEnv: c.get<Record<string, string>>('sessionEnv', {}),
-    focusMode: c.get('focusMode', 'swapFolder'),
+    focusMode: c.get('focusMode', 'activeSessions'),
     terminalLocation: c.get('terminalLocation', 'panel'),
     connectIdeOnFocus: c.get<boolean>('connectIdeOnFocus', false),
     refreshInterval: Math.max(1, c.get<number>('refreshInterval', 5)),

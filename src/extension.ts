@@ -104,6 +104,8 @@ export function activate(context: vscode.ExtensionContext): void {
       statusBar.hide();
     }
 
+    void actions.syncWorkspaceFolders();
+
     if (firstSnapshot) {
       firstSnapshot = false;
       void actions.resumePendingFocus();
