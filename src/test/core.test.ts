@@ -84,6 +84,8 @@ test('missing dependencies', () => {
 test('findRepos skips worktrees and dot dirs', () => {
   const root = tmp();
   fs.mkdirSync(path.join(root, 'org/repo1/.git'), { recursive: true });
+  fs.writeFileSync(path.join(root, 'org/repo1/.git/HEAD'), 'ref: refs/heads/main\n');
+  fs.mkdirSync(path.join(root, 'org/sandboxed/.git'), { recursive: true });
   fs.mkdirSync(path.join(root, 'org/.claude'), { recursive: true });
   fs.mkdirSync(path.join(root, 'org/wt'), { recursive: true });
   fs.writeFileSync(path.join(root, 'org/wt/.git'), 'gitdir: /x');

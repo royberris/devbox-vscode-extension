@@ -25,6 +25,11 @@ function isDir(p: string): boolean {
   }
 }
 
+/** A real `.git` directory; an agent sandbox can leave an empty one behind as a mount point. */
+function isMainRepo(dir: string): boolean {
+  return fs.existsSync(path.join(dir, '.git', 'HEAD')) && isDir(path.join(dir, '.git'));
+}
+
 /**
  * Main repositories (with a `.git` directory, so worktrees are excluded) below the roots.
  * A root is always searched, never counted itself: a stray `git init` in `~/repos` would hide every repo in it.
@@ -32,7 +37,7 @@ function isDir(p: string): boolean {
 export function findRepos(roots: string[], depth: number, extra: string[] = []): string[] {
   const found = new Set<string>();
   const walk = (dir: string, level: number) => {
-    if (level > 0 && isDir(path.join(dir, '.git'))) {
+    if (level > 0 && isMainRepo(dir)) {
       found.add(dir);
       return;
     }
@@ -48,7 +53,7 @@ export function findRepos(roots: string[], depth: number, extra: string[] = []):
     }
   };
   for (const root of roots) walk(root, 0);
-  for (const r of extra) if (isDir(path.join(r, '.git'))) found.add(r);
+  for (const r of extra) if (isMainRepo(r)) found.add(r);
   return [...found].sort((a, b) => path.basename(a).localeCompare(path.basename(b)));
 }
 
