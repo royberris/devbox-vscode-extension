@@ -614,7 +614,7 @@
             "terminalOnly"
           ],
           "enumDescriptions": [
-            "Switch the window to the agent workspace once; it then shows exactly the worktrees of the running agent sessions, and folders come and go with the sessions.",
+            "Switch the window to the agent workspace once. Its first folder is always the worktrees root (so the window never reloads); after it come exactly the worktrees of the running agent sessions, which come and go with the sessions.",
             "Replace any other agent worktree folder in this window with the focused session's worktree; your other folders stay.",
             "Add the session's worktree as an extra workspace folder and keep the others.",
             "Open the worktree in a new VS Code window.",

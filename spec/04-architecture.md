@@ -27,7 +27,7 @@ Because nothing is kept in the extension, reconnecting shows exactly what is run
 Focusing a session does three things:
 
 - It opens a terminal with `tmux attach -t =<session>`, using an explicit `shellPath`, so the default profile is bypassed.
-- It shows the worktree in the explorer, depending on a setting. By default the window switches once to a dedicated agent workspace whose folders follow the running sessions: a session's worktree is added when it starts or is focused and removed when it ends. Existing folders keep their place, so folder 0 (changing it restarts the extension host) only changes when its own session ends. The other modes replace the previous agent worktree folder, add a folder, or open a new window, and never touch folder 0.
+- It shows the worktree in the explorer, depending on a setting. By default the window switches once to a dedicated agent workspace whose folders follow the running sessions: folder 0 is always the worktrees root, because changing folder 0 restarts the extension host; after it, a session's worktree is added when it starts or is focused and removed when it ends. The other modes replace the previous agent worktree folder, add a folder, or open a new window, and never touch folder 0.
 - Optionally it types `/ide` into a Claude session, so diffs show in the editor (R15).
 
 This covers R6 and R15.

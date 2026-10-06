@@ -550,16 +550,21 @@ export class SessionActions {
     await vscode.commands.executeCommand('revealInExplorer', uri);
   }
 
+  private folderName(dir: string): string {
+    const root = this.cfg().worktreesRoot;
+    return dir === root ? `${path.basename(root)} (all agent worktrees)` : (workspaceFolderName(root, dir) ?? path.basename(dir));
+  }
+
   /** Directories of the running sessions started by this extension: their worktree, or the checkout. */
   private activeSessionDirs(): string[] {
     return [...new Set(this.model.allSessions().flatMap((s) => (s.managed && s.dir && fs.existsSync(s.dir) ? [s.dir] : [])))];
   }
 
   /**
-   * activeSessions mode: makes the agent workspace show exactly the running sessions' directories
-   * (plus `extra`, a session that may not be in the snapshot yet). Existing folders keep their place
-   * and new ones go last, so folder 0 (changing it restarts the extension host) only changes when its
-   * session ends. Returns true if `extra` was added.
+   * activeSessions mode: the agent workspace shows a fixed first folder (the worktrees root; changing
+   * folder 0 restarts the extension host, so it must never change) followed by exactly the running
+   * sessions' directories (plus `extra`, a session that may not be in the snapshot yet). Returns true
+   * if `extra` was added.
    */
   syncWorkspaceFolders(extra?: string): Promise<boolean> {
     const run = this.folderSync.then(() => this.applyWorkspaceFolders(extra));
@@ -571,14 +576,16 @@ export class SessionActions {
     if (this.cfg().focusMode !== 'activeSessions' || !inAgentWorkspace()) return false;
     const snap = this.model.snapshot;
     if (snap.error || !snap.tmuxAvailable) return false; // a failed read is not "no sessions"
+    const root = this.cfg().worktreesRoot;
     const current = (vscode.workspace.workspaceFolders ?? []).map((f) => f.uri.fsPath);
-    const active = this.activeSessionDirs();
-    if (extra && !active.includes(extra)) active.push(extra);
-    const want = [...current.filter((d) => active.includes(d)), ...active.filter((d) => !current.includes(d))];
+    const active = this.activeSessionDirs().filter((d) => d !== root);
+    if (extra && extra !== root && !active.includes(extra)) active.push(extra);
+    const rest = current.slice(1);
+    const want = [root, ...rest.filter((d) => active.includes(d)), ...active.filter((d) => !rest.includes(d))];
     if (want.length === current.length && want.every((d, i) => d === current[i])) return false;
 
-    const start = current.length && want[0] === current[0] ? 1 : 0;
-    const root = this.cfg().worktreesRoot;
+    const start = current[0] === root ? 1 : 0;
+    if (start === 0) fs.mkdirSync(root, { recursive: true });
     const changed = new Promise<void>((resolve) => {
       const sub = vscode.workspace.onDidChangeWorkspaceFolders(() => (sub.dispose(), resolve()));
       setTimeout(() => (sub.dispose(), resolve()), 3000);
@@ -586,7 +593,7 @@ export class SessionActions {
     const ok = vscode.workspace.updateWorkspaceFolders(
       start,
       current.length - start,
-      ...want.slice(start).map((d) => ({ uri: vscode.Uri.file(d), name: workspaceFolderName(root, d) ?? path.basename(d) })),
+      ...want.slice(start).map((d) => ({ uri: vscode.Uri.file(d), name: this.folderName(d) })),
     );
     const removed = current.filter((d) => !want.includes(d));
     const added = want.filter((d) => !current.includes(d));
@@ -639,14 +646,15 @@ export class SessionActions {
     } catch {
       // new file, or not plain JSON: start fresh
     }
-    const name = (d: string) => workspaceFolderName(this.cfg().worktreesRoot, d) ?? path.basename(d);
-    // activeSessions: only the running sessions. Otherwise folder 0 is a stable anchor (changing it
-    // restarts the extension host) and agent worktrees go after it.
+    // Folder 0 is a stable anchor (changing it restarts the extension host); agent worktrees go after
+    // it. activeSessions anchors on the worktrees root and lists only the running sessions.
+    const root = this.cfg().worktreesRoot;
     ws.folders = this.cfg().focusMode === 'activeSessions'
-      ? [dir, ...this.activeSessionDirs().filter((d) => d !== dir)].map((d) => ({ path: d, name: name(d) }))
+      ? [root, ...new Set([dir, ...this.activeSessionDirs()].filter((d) => d !== root))].map((d) => ({ path: d, name: this.folderName(d) }))
       : [...(anchor && anchor !== dir ? [{ path: anchor }] : []), { path: dir, name: workspaceFolderName(this.cfg().worktreesRoot, dir) }];
     try {
       fs.mkdirSync(path.dirname(file), { recursive: true });
+      fs.mkdirSync(root, { recursive: true });
       fs.writeFileSync(file, JSON.stringify(ws, null, 2) + '\n');
     } catch (e) {
       return void this.fail('Could not write the agent workspace', e);
