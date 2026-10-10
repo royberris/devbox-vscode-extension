@@ -35,11 +35,13 @@ jobs:
       # Marketplace publishing runs only when the token secrets exist.
       - name: Publish to VS Code Marketplace
         if: env.VSCE_PAT != ''
-        run: npx vsce publish --packagePath *.vsix
+        run: npx vsce publish --packagePath *.vsix --skip-duplicate
         env:
           VSCE_PAT: ${{ secrets.VSCE_PAT }}
       - name: Publish to Open VSX
         if: env.OVSX_PAT != ''
-        run: npx --yes ovsx publish *.vsix
+        run: |
+          npx --yes ovsx create-namespace "$(node -p "require('./package.json').publisher")" || true
+          npx --yes ovsx publish *.vsix --skip-duplicate
         env:
           OVSX_PAT: ${{ secrets.OVSX_PAT }}

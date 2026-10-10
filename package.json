@@ -5,6 +5,11 @@
   "version": "0.1.0",
   "publisher": "royberris",
   "license": "MIT",
+  "icon": "media/icon.png",
+  "galleryBanner": {
+    "color": "#1b2f45",
+    "theme": "dark"
+  },
   "repository": {
     "type": "git",
     "url": "https://github.com/royberris/devbox-vscode-extension"
