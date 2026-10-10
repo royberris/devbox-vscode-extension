@@ -1,15 +1,15 @@
 # Devbox Agents
 
-Run Claude Code and Codex on your remote dev box, each agent in its own **git worktree** and **tmux session**. Agents **keep running when your laptop is closed** or the connection drops. Reconnect and every session is live again, including everything that happened in between.
+Run Claude Code, Codex and Antigravity on your remote dev box, each agent in its own **git worktree** and **tmux session**. Agents **keep running when your laptop is closed** or the connection drops. Reconnect and every session is live again, including everything that happened in between.
 
 ## What it does
 
 - **One-step sessions.** Pick a repository and an agent; the extension creates a worktree on a new `agent/<name>` branch, opens a tmux session in it and starts the agent.
-- **Many agents at once.** Claude Code and Codex side by side, each isolated in its own worktree.
+- **Many agents at once.** Claude Code, Codex and Antigravity side by side, each isolated in its own worktree.
 - **Follow along.** Click a session and its terminal attaches and its worktree appears in the explorer.
 - **Get notified.** A notification, badge and status bar counter when an agent waits for permission or has finished its turn.
-- **Resume anything.** Browse past chats of both agents per repository and resume them in a fresh tmux session.
-- **Keep the server tidy.** See every running `claude`/`codex` process, spot orphaned ones, and clean up worktrees only when they have no uncommitted changes.
+- **Resume anything.** Browse past chats of every agent per repository and resume them in a fresh tmux session.
+- **Keep the server tidy.** See every running `claude`/`codex`/`agy` process, spot orphaned ones, and clean up worktrees only when they have no uncommitted changes.
 - **Repositories at a glance.** Branch, ahead/behind and local changes per repository, and clone a new one on the server by pasting a link.
 
 ## What you need
@@ -24,12 +24,13 @@ On the **server**:
 
 - Linux
 - `tmux` 3.2 or newer, `git` 2.38 or newer, `bash`
-- [Claude Code](https://docs.claude.com/en/docs/claude-code) and/or [Codex](https://github.com/openai/codex), installed **and logged in on the server**
+- At least one of [Claude Code](https://docs.claude.com/en/docs/claude-code), [Codex](https://github.com/openai/codex) or the [Antigravity CLI](https://antigravity.google) (`agy`), installed **and logged in on the server**. Agents that are not installed are hidden.
 
 ```sh
 sudo apt install -y tmux git
 curl -fsSL https://claude.ai/install.sh | bash   # Claude Code
 npm install -g @openai/codex                     # Codex
+curl -fsSL https://antigravity.google/cli/install.sh | bash   # Antigravity
 ```
 
 The extension installs no software on your server and never stores anything in your repositories.
