@@ -689,7 +689,7 @@
     "watch": "node esbuild.mjs --watch",
     "typecheck": "tsc --noEmit",
     "test": "tsc -p tsconfig.test.json && node --test out/test/*.test.js",
-    "package": "npm run typecheck && node esbuild.mjs --production && vsce package --no-dependencies",
+    "package": "npm run typecheck && node esbuild.mjs --production && vsce package --no-dependencies --readme-path marketplace/listing.md",
     "vscode:prepublish": "node esbuild.mjs --production"
   },
   "devDependencies": {
