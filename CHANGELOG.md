@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.0.0
+
+- Recommended layout (explorer with sessions left, file in the middle, agent terminal right) with a screenshot in the README and on the Marketplace page.
+- Development dependencies updated by Dependabot (TypeScript 7).
+
 ## 0.2.0
 
 - Antigravity CLI (`agy`) as a third agent: start, resume (`--conversation`), process overview and chat history.
