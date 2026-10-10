@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.2.0
 
 - Antigravity CLI (`agy`) as a third agent: start, resume (`--conversation`), process overview and chat history.
 - Agents whose command is not found on the server are hidden from the pickers and menus.
