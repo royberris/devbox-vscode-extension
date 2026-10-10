@@ -2,11 +2,11 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 /**
- * Finds claude/codex processes by reading /proc (Linux only), and works out where each one
+ * Finds claude/codex/agy processes by reading /proc (Linux only), and works out where each one
  * comes from. Read-only: this module never signals a process.
  */
 
-export type ProcessKind = 'claude' | 'claude-acp' | 'codex' | 'codex-acp' | 'codex-daemon';
+export type ProcessKind = 'claude' | 'claude-acp' | 'codex' | 'codex-acp' | 'codex-daemon' | 'agy';
 
 /**
  * tmux: inside a tmux pane · ssh: started from a plain ssh shell · vscode: child of the VS Code
@@ -68,6 +68,8 @@ export function kindOf(exe: string, args: string): ProcessKind | undefined {
   const exePath = exe.replace(/ \(deleted\)$/, '');
   const base = path.basename(exePath);
   if (exePath.includes('/claude/versions/') || base === 'claude') return 'claude';
+  // agy replaces its binary on update; a running old one shows as agy.<n>.old (deleted)
+  if (base === 'agy' || /^agy\.\d+\.old$/.test(base)) return 'agy';
   if (!(base === 'node' || base === 'codex' || base.startsWith('codex-'))) return undefined;
   if (/codex app-server.*--managed-daemon/.test(args) || args.includes('codex app-server daemon')) return 'codex-daemon';
   if (args.includes('claude-agent-acp')) return 'claude-acp';

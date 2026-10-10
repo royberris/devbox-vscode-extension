@@ -2,7 +2,7 @@ import * as path from 'path';
 import * as vscode from 'vscode';
 import type { Config } from './config';
 import { findRepos, listWorktrees, missingDependencies, repoStatus, type RepoStatus, type Worktree } from './core/git';
-import { readClaudeHistory, readCodexHistory, type Chat } from './core/history';
+import { readAgyHistory, readClaudeHistory, readCodexHistory, type Chat } from './core/history';
 import { scanAgentProcesses, type AgentProcess, type ProcessKind } from './core/processes';
 import { readStatuses, type AgentStatus } from './core/status';
 import { Tmux, type TmuxPane, type TmuxSession } from './core/tmux';
@@ -51,6 +51,7 @@ const EMPTY: Snapshot = { tmuxAvailable: true, repos: [], repoInfos: [], groups:
 function agentOfKind(kind: ProcessKind): AgentKind | undefined {
   if (kind === 'claude' || kind === 'claude-acp') return 'claude';
   if (kind === 'codex' || kind === 'codex-acp') return 'codex';
+  if (kind === 'agy') return 'agy';
   return undefined;
 }
 
@@ -212,7 +213,7 @@ export class HistoryModel implements vscode.Disposable {
     await new Promise((r) => setImmediate(r));
     let chats: Chat[] = [];
     try {
-      chats = [...readClaudeHistory(cfg.claudeConfigDir, since), ...readCodexHistory(cfg.codexHome, since)];
+      chats = [...readClaudeHistory(cfg.claudeConfigDir, since), ...readCodexHistory(cfg.codexHome, since), ...readAgyHistory(cfg.agyDataDir, since)];
     } catch (e) {
       this.log.appendLine(`[history] ${(e as Error).message}`);
     }

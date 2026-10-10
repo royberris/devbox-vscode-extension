@@ -22,9 +22,11 @@ export interface Config {
   agents: Record<AgentKind, AgentConfig>;
   claudeConfigDir: string;
   codexHome: string;
+  agyDataDir: string;
   tmuxPath: string;
   shell: string;
   sessionEnv: Record<string, string>;
+  openAgentWorkspaceOnStart: boolean;
   focusMode: 'activeSessions' | 'swapFolder' | 'addFolder' | 'newWindow' | 'terminalOnly';
   terminalLocation: 'panel' | 'editor';
   connectIdeOnFocus: boolean;
@@ -52,13 +54,15 @@ export function readConfig(): Config {
     defaultBaseBranch: str('defaultBaseBranch', 'main'),
     fetchBeforeNewSession: c.get<boolean>('fetchBeforeNewSession', true),
     repoAliases: c.get<Record<string, string>>('repoAliases', {}),
-    agents: { claude: agent('claude'), codex: agent('codex') },
+    agents: { claude: agent('claude'), codex: agent('codex'), agy: agent('agy') },
     claudeConfigDir: expandHome(str('claude.configDir', process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), '.claude'))),
     codexHome: expandHome(str('codex.home', process.env.CODEX_HOME || path.join(os.homedir(), '.codex'))),
+    agyDataDir: expandHome(str('agy.dataDir', path.join(os.homedir(), '.gemini', 'antigravity-cli'))),
     tmuxPath: expandHome(str('tmuxPath', 'tmux')),
     shell: expandHome(str('shell', process.env.SHELL || '/bin/bash')),
     sessionEnv: c.get<Record<string, string>>('sessionEnv', {}),
     focusMode: c.get('focusMode', 'activeSessions'),
+    openAgentWorkspaceOnStart: c.get<boolean>('openAgentWorkspaceOnStart', true),
     terminalLocation: c.get('terminalLocation', 'panel'),
     connectIdeOnFocus: c.get<boolean>('connectIdeOnFocus', false),
     refreshInterval: Math.max(1, c.get<number>('refreshInterval', 5)),

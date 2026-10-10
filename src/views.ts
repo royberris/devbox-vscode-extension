@@ -5,7 +5,7 @@ import type { Worktree } from './core/git';
 import type { Chat } from './core/history';
 import type { AgentProcess, Origin } from './core/processes';
 import type { AgentState } from './core/status';
-import { AGENT_LABEL, formatDateTime, relativeTime, repoShortName, tildify } from './core/util';
+import { AGENT_ICON, AGENT_LABEL, formatDateTime, relativeTime, repoShortName, tildify } from './core/util';
 import type { ChatGroup, HistoryModel, Model, RepoGroup, RepoInfo, Session } from './model';
 
 // ---- Sessions ------------------------------------------------------------------------------------
@@ -115,7 +115,13 @@ export class SessionsProvider implements vscode.TreeDataProvider<SessionNode> {
       ['Agent PIDs', s.processes.map((p) => p.pid).join(', ') || undefined],
     ];
     for (const [k, v] of rows) if (v) md.appendMarkdown(`${k}: \`${v}\`  \n`);
-    if (s.agent && !s.status && s.processes.length) md.appendMarkdown(`\n_No status reported. Run "Install Status Hooks" to see when this agent waits for you._`);
+    if (s.agent && !s.status && s.processes.length) {
+      md.appendMarkdown(
+        s.agent === 'agy'
+          ? `\n_Antigravity does not report its status to Devbox Agents yet._`
+          : `\n_No status reported. Run "Install Status Hooks" to see when this agent waits for you._`,
+      );
+    }
     item.tooltip = md;
     return item;
   }
@@ -253,7 +259,7 @@ export class HistoryProvider implements vscode.TreeDataProvider<HistoryNode> {
     const item = new vscode.TreeItem(c.title, vscode.TreeItemCollapsibleState.None);
     item.id = `chat:${c.agent}:${c.id}`;
     item.description = `${AGENT_LABEL[c.agent]} · ${relativeTime(c.updated)}`;
-    item.iconPath = new vscode.ThemeIcon(c.agent === 'claude' ? 'sparkle' : 'hubot');
+    item.iconPath = new vscode.ThemeIcon(AGENT_ICON[c.agent]);
     item.contextValue = 'chat';
     const md = new vscode.MarkdownString();
     md.appendMarkdown(`**${c.title}**\n\n`);

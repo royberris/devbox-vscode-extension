@@ -1,11 +1,12 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as vscode from 'vscode';
+import { AgentAvailability } from './agents';
 import { readConfig } from './config';
 import type { Worktree } from './core/git';
 import type { Chat } from './core/history';
 import type { AgentProcess } from './core/processes';
-import { defaultHookScriptPath, hookScript, mergeClaudeHooks, mergeCodexNotify, type AgentStatus } from './core/status';
+import { defaultHookScriptPath, hookScript, mergeClaudeHooks, mergeCodexHooks, mergeCodexNotify, type AgentStatus } from './core/status';
 import { AGENT_LABEL, oneLine, tildify } from './core/util';
 import { HistoryModel, Model, type RepoGroup, type Session } from './model';
 import { SessionActions } from './sessions';
@@ -21,7 +22,9 @@ export function activate(context: vscode.ExtensionContext): void {
   const cfg = readConfig;
   const model = new Model(cfg, log);
   const history = new HistoryModel(cfg, () => model.snapshot.repos, log);
-  const actions = new SessionActions(model, cfg, log, context.globalState);
+  const agents = new AgentAvailability(cfg, log);
+  void agents.updateContext();
+  const actions = new SessionActions(model, cfg, log, context.globalState, agents);
 
   const sessionsProvider = new SessionsProvider(model, cfg);
   const sessionsView = vscode.window.createTreeView('devboxAgents.sessions', { treeDataProvider: sessionsProvider, showCollapseAll: true });
@@ -70,6 +73,8 @@ export function activate(context: vscode.ExtensionContext): void {
       if (!e.affectsConfiguration('devboxAgents')) return;
       if (e.affectsConfiguration('devboxAgents.refreshInterval')) schedule();
       if (e.affectsConfiguration('devboxAgents.statusDir')) watchStatus();
+      agents.clear();
+      void agents.updateContext();
       void model.refresh();
       void history.refresh();
     },
@@ -108,8 +113,10 @@ export function activate(context: vscode.ExtensionContext): void {
 
     if (firstSnapshot) {
       firstSnapshot = false;
-      void actions.resumePendingFocus();
-      void offerHooks(cfg, log, context.globalState);
+      void actions.openAgentWorkspaceOnStart().then((reloading) => {
+        if (!reloading) return actions.resumePendingFocus();
+      });
+      void offerHooks(cfg, log, context.globalState, agents);
       for (const s of snap.statuses) seen.set(s.key, s);
       if (waiting.length) {
         void vscode.window
@@ -141,12 +148,16 @@ export function activate(context: vscode.ExtensionContext): void {
   type RepoInfoArg = { type: 'repoInfo'; info: { path: string } };
   reg('devboxAgents.startClaudeInRepo', (arg: RepoInfoArg) => actions.startInRepo(arg.info.path, 'claude'));
   reg('devboxAgents.startCodexInRepo', (arg: RepoInfoArg) => actions.startInRepo(arg.info.path, 'codex'));
+  reg('devboxAgents.startAgyInRepo', (arg: RepoInfoArg) => actions.startInRepo(arg.info.path, 'agy'));
   reg('devboxAgents.trustFolders', () => actions.trustFolders());
   reg('devboxAgents.addRepository', () => actions.addRepository());
   reg('devboxAgents.setAlias', (arg: RepoInfoArg) => actions.setAlias(arg.info.path));
   reg('devboxAgents.newSessionForRepo', (arg: RepoInfoArg) => actions.newSession(arg.info.path));
   reg('devboxAgents.newSession', (arg?: RepoArg) => actions.newSession(arg?.type === 'repo' ? arg.group.repo : undefined));
-  reg('devboxAgents.refresh', () => Promise.all([model.refresh(), history.refresh()]));
+  reg('devboxAgents.refresh', () => {
+    agents.clear();
+    return Promise.all([model.refresh(), history.refresh(), agents.updateContext()]);
+  });
   reg('devboxAgents.focusSession', (arg?: SessionArg) => {
     const s = sessionOf(arg);
     if (s) return actions.focus(model.findSession(s.name) ?? s);
@@ -205,23 +216,42 @@ export function deactivate(): void {}
 
 const HOOKS_PROMPT_DISMISSED = 'devboxAgents.hooksPromptDismissed';
 
-/** True when Claude is enabled but its status hooks (or the script they call) are missing. */
-function claudeHooksMissing(c: ReturnType<typeof readConfig>): boolean {
-  if (!c.agents.claude.enabled) return false;
-  const script = defaultHookScriptPath();
-  if (!fs.existsSync(script)) return true;
+/** File contents, or undefined when it does not exist (one call, so no check-then-read race). */
+function readIfExists(file: string): string | undefined {
   try {
-    const settings = path.join(c.claudeConfigDir, 'settings.json');
-    return mergeClaudeHooks(fs.existsSync(settings) ? fs.readFileSync(settings, 'utf8') : undefined, script) !== undefined;
-  } catch {
-    return false; // unreadable settings: installing would fail too
+    return fs.readFileSync(file, 'utf8');
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code === 'ENOENT') return undefined;
+    throw e;
   }
 }
 
+/** True when a merge would change the file, i.e. some of our hooks are missing from it. */
+function hooksMissingIn(file: string, merge: (existing: string | undefined, script: string) => string | undefined): boolean {
+  try {
+    return merge(readIfExists(file), defaultHookScriptPath()) !== undefined;
+  } catch {
+    return false; // unreadable file: installing would fail too
+  }
+}
+
+/** True when an installed agent lacks its status hooks (or the script they call). */
+async function hooksMissing(c: ReturnType<typeof readConfig>, agents: AgentAvailability): Promise<boolean> {
+  const [claude, codex] = await Promise.all([agents.isInstalled('claude'), agents.isInstalled('codex')]);
+  const wantClaude = claude && c.agents.claude.enabled;
+  const wantCodex = codex && c.agents.codex.enabled;
+  if (!wantClaude && !wantCodex) return false;
+  if (!fs.existsSync(defaultHookScriptPath())) return true;
+  return (
+    (wantClaude && hooksMissingIn(path.join(c.claudeConfigDir, 'settings.json'), mergeClaudeHooks)) ||
+    (wantCodex && hooksMissingIn(path.join(c.codexHome, 'hooks.json'), mergeCodexHooks))
+  );
+}
+
 /** Without hooks every session shows "no status"; offer to install them (again, e.g. after a setup script reset settings.json). */
-async function offerHooks(cfg: typeof readConfig, log: vscode.OutputChannel, state: vscode.Memento): Promise<void> {
-  if (state.get<boolean>(HOOKS_PROMPT_DISMISSED) || !claudeHooksMissing(cfg())) return;
-  log.appendLine('[hooks] Claude status hooks are not installed');
+async function offerHooks(cfg: typeof readConfig, log: vscode.OutputChannel, state: vscode.Memento, agents: AgentAvailability): Promise<void> {
+  if (state.get<boolean>(HOOKS_PROMPT_DISMISSED) || !(await hooksMissing(cfg(), agents))) return;
+  log.appendLine('[hooks] status hooks are not installed');
   const install = 'Install';
   const never = "Don't Ask Again";
   const pick = await vscode.window.showInformationMessage(
@@ -238,6 +268,7 @@ async function installHooks(cfg: typeof readConfig, log: vscode.OutputChannel): 
   const script = defaultHookScriptPath();
   const claudeSettings = path.join(c.claudeConfigDir, 'settings.json');
   const codexConfig = path.join(c.codexHome, 'config.toml');
+  const codexHooks = path.join(c.codexHome, 'hooks.json');
   const withCodex = c.agents.codex.enabled && fs.existsSync(c.codexHome);
   const ok = await vscode.window.showInformationMessage(
     'Install status hooks?',
@@ -248,7 +279,8 @@ async function installHooks(cfg: typeof readConfig, log: vscode.OutputChannel): 
         '',
         `• Writes ${tildify(script)} (bash only; writes to ${tildify(c.statusDir)})`,
         c.agents.claude.enabled ? `• Adds hooks to ${tildify(claudeSettings)} (a backup is saved next to it)` : '',
-        withCodex ? `• Adds "notify" to ${tildify(codexConfig)} if it has none (Codex only reports finished turns)` : '',
+        withCodex ? `• Adds hooks to ${tildify(codexHooks)}, and "notify" to ${tildify(codexConfig)} if it has none (for older Codex versions)` : '',
+        withCodex ? '  Codex runs new hooks only after you trust them: run /hooks in Codex once.' : '',
         '',
         'Applies to agents started from now on.',
       ]
@@ -267,10 +299,10 @@ async function installHooks(cfg: typeof readConfig, log: vscode.OutputChannel): 
     done.push(`script ${tildify(script)}`);
 
     if (c.agents.claude.enabled) {
-      const existing = fs.existsSync(claudeSettings) ? fs.readFileSync(claudeSettings, 'utf8') : undefined;
+      const existing = readIfExists(claudeSettings);
       const merged = mergeClaudeHooks(existing, script);
       if (merged) {
-        if (existing !== undefined) fs.copyFileSync(claudeSettings, `${claudeSettings}.devbox-agents.bak`);
+        if (existing !== undefined) fs.writeFileSync(`${claudeSettings}.devbox-agents.bak`, existing);
         fs.mkdirSync(path.dirname(claudeSettings), { recursive: true });
         fs.writeFileSync(claudeSettings, merged);
         done.push(`Claude hooks in ${tildify(claudeSettings)}`);
@@ -280,16 +312,24 @@ async function installHooks(cfg: typeof readConfig, log: vscode.OutputChannel): 
     }
 
     if (withCodex) {
-      const existing = fs.existsSync(codexConfig) ? fs.readFileSync(codexConfig, 'utf8') : undefined;
+      const existingHooks = readIfExists(codexHooks);
+      const mergedHooks = mergeCodexHooks(existingHooks, script);
+      if (mergedHooks) {
+        if (existingHooks !== undefined) fs.writeFileSync(`${codexHooks}.devbox-agents.bak`, existingHooks);
+        fs.writeFileSync(codexHooks, mergedHooks);
+        done.push(`Codex hooks in ${tildify(codexHooks)} (trust them once with /hooks in Codex)`);
+      } else {
+        done.push('Codex hooks (already present)');
+      }
+
+      const existing = readIfExists(codexConfig);
       const r = mergeCodexNotify(existing, script);
       if (r.kind === 'updated') {
-        if (existing !== undefined) fs.copyFileSync(codexConfig, `${codexConfig}.devbox-agents.bak`);
+        if (existing !== undefined) fs.writeFileSync(`${codexConfig}.devbox-agents.bak`, existing);
         fs.writeFileSync(codexConfig, r.text);
         done.push(`Codex notify in ${tildify(codexConfig)}`);
       } else if (r.kind === 'conflict') {
-        void vscode.window.showWarningMessage(
-          `Codex already has a notify program (${r.line}). Not changed: Codex supports only one. Call "${script} codex <json>" from your own notify program to get Codex statuses.`,
-        );
+        log.appendLine(`[hooks] Codex already has a notify program (${r.line}); left alone, the hooks report statuses`);
       } else {
         done.push('Codex notify (already present)');
       }

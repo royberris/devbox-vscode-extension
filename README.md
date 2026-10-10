@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/royberris/devbox-vscode-extension/actions/workflows/ci.yml/badge.svg)](https://github.com/royberris/devbox-vscode-extension/actions/workflows/ci.yml)
 
-A VS Code extension to start, follow and resume AI coding agents ([Claude Code](https://docs.claude.com/en/docs/claude-code), [Codex](https://github.com/openai/codex)) on a remote dev box, with every agent in its own **git worktree** and **tmux session**.
+A VS Code extension to start, follow and resume AI coding agents ([Claude Code](https://docs.claude.com/en/docs/claude-code), [Codex](https://github.com/openai/codex), [Antigravity CLI](https://antigravity.google)) on a remote dev box, with every agent in its own **git worktree** and **tmux session**.
 
 Agents run on the server, with the server's own configuration, logins and guardrails. They **keep running when your laptop is closed** or the connection drops, with no time limit. When you reconnect you see each session live again, including everything that happened in between.
 
@@ -19,11 +19,11 @@ Ask me first for the SSH host of my remote dev box if you don't know it.
 1. Laptop: make sure VS Code and the "Remote - SSH" extension
    (ms-vscode-remote.remote-ssh) are installed, and that `ssh <host>` works.
 2. Server: install the requirements from the README section "What you install
-   yourself": Linux, tmux >= 3.2, git >= 2.38, bash, and Claude Code and/or
-   Codex. Verify the versions in a login shell (`ssh <host> bash -lc ...`).
-   Use sudo only where needed and ask before changing system packages.
-   Do not log in to Claude or Codex for me; tell me to run `claude` / `codex login`
-   on the server myself if they are not logged in yet.
+   yourself": Linux, tmux >= 3.2, git >= 2.38, bash, and at least one agent CLI
+   (Claude Code, Codex or Antigravity `agy`; ask me which). Verify the versions
+   in a login shell (`ssh <host> bash -lc ...`). Use sudo only where needed and
+   ask before changing system packages. Do not log in to the agents for me; tell
+   me to run `claude` / `codex login` / `agy` on the server myself if needed.
 3. Extension: it must be installed on the remote side ("Getting started",
    step 2). Try `code --remote ssh-remote+<host> --install-extension
    royberris.devbox-agents`; if that doesn't work, ask me to install it from the
@@ -44,7 +44,7 @@ set, and anything I still have to do by hand.
 
 **What the extension does**
 
-- Starts Claude Code or Codex in its own git worktree, on its own branch, inside a tmux session, from one picker.
+- Starts Claude Code, Codex or Antigravity (`agy`) in its own git worktree, on its own branch, inside a tmux session, from one picker.
 - Shows all sessions, worktrees, repositories, running agent processes and past chats in a sidebar.
 - Lets you focus a session (terminal + explorer follow), resume old chats, and clean up worktrees safely.
 - Notifies you when an agent is waiting for permission or has finished.
@@ -61,7 +61,7 @@ set, and anything I still have to do by hand.
 | Your laptop | VS Code + a remote extension | [Remote - SSH](https://marketplace.visualstudio.com/items?itemName=ms-vscode-remote.remote-ssh) (or WSL, Dev Containers, Codespaces) |
 | The server | Linux | Process scanning reads `/proc`; the rest also works on macOS |
 | The server | `tmux` ≥ 3.2, `git` ≥ 2.38, `bash` | See the commands below |
-| The server | `claude` and/or `codex` | Installed **and logged in** on the server, not on your laptop |
+| The server | `claude`, `codex` and/or `agy` | At least one, installed **and logged in** on the server, not on your laptop. Agents that are not installed are hidden in the extension |
 | The server | This extension | Installed from a window connected to the server; VS Code puts it on the remote side |
 
 On Ubuntu/Debian:
@@ -78,9 +78,15 @@ claude            # log in once
 # Codex (needs Node.js)
 npm install -g @openai/codex
 codex login
+
+# Antigravity CLI
+curl -fsSL https://antigravity.google/cli/install.sh | bash
+agy               # log in once
 ```
 
-Check with `tmux -V`, `git --version`, `claude --version`, `codex --version`, all in a login shell on the server.
+On RHEL/AlmaLinux/Rocky use `sudo dnf install -y tmux git`.
+
+Check with `tmux -V`, `git --version` and `claude --version` / `codex --version` / `agy --version`, all in a login shell on the server.
 
 ## Getting started
 
@@ -88,7 +94,9 @@ Check with `tmux -V`, `git --version`, `claude --version`, `codex --version`, al
 2. In that window, install **Devbox Agents** from the Extensions view. It installs on the remote side. (Or use **… → Install from VSIX…** with a `.vsix` from the [releases](https://github.com/royberris/devbox-vscode-extension/releases).)
 3. Run `Devbox Agents: Open Settings` and make sure `repoRoots` (where your repositories are, default `~/repos`) and `worktreesRoot` (default `~/worktrees`) match your server.
 4. Run `Devbox Agents: Install Status Hooks…` once to get notifications (see [Status hooks](#status-hooks-notifications)).
-5. Click **+** in the *Sessions* view and pick Claude Code or Codex.
+5. Click **+** in the *Sessions* view and pick an agent.
+
+In a window without a folder (a fresh Remote-SSH connection), the extension switches to its agent workspace right away: one reload when the window opens, and from then on the explorer shows the worktrees of your running sessions. Set `devboxAgents.openAgentWorkspaceOnStart` to `false` to keep empty windows empty.
 
 The extension declares `"extensionKind": ["workspace"]`, so in a Remote-SSH, WSL, Dev Container or Codespaces window it runs **on the remote side**. It needs no SSH settings of its own; it uses the connection VS Code already has. Every path and command is a setting with *machine* scope, so you can set different values per remote (**Remote [host]** tab in the settings editor).
 
@@ -114,22 +122,22 @@ A process started by a VS Code extension on a remote host stops when VS Code has
 
 ## Features
 
-- **New session in one step:** a single picker with a random, editable session name. Press Enter on *Claude Code* or *Codex* and the extension creates
+- **New session in one step:** a single picker with a random, editable session name. Press Enter on an agent (*Claude Code*, *Codex* or *Antigravity*; only the ones installed on the server are listed) and the extension creates
   - a worktree in `<worktreesRoot>/<repo>/<name>` on a new branch `agent/<name>`, based on `origin/main` (`devboxAgents.defaultBaseBranch`),
   - a tmux session `<repo>-<name>` in that worktree,
   - and starts the agent in a login shell in it.
 
   The picker also shows the repository (the last one used, or the one open in the window) and the base branch. Select either one to change it. The agent you used last comes first.
 - **The explorer follows your focus:** click a session and its worktree becomes a workspace folder (or opens in a new window, see `devboxAgents.focusMode`), and a terminal attaches to the tmux session.
-- **Many agents at once,** Claude and Codex mixed, each with its own worktree.
+- **Many agents at once,** Claude, Codex and Antigravity mixed, each with its own worktree.
 - **Clean up safely:** *Clean Up* stops the session and removes the worktree, but only if it has no uncommitted or untracked changes. Otherwise it refuses and lists the changes. The branch is always kept.
 - **Repositories view:** every repository with its branch, ahead/behind, uncommitted changes and a hint when dependencies are missing (`package.json` without `node_modules`). From there you can
-  - start Claude Code or Codex **directly on the main checkout**, without a worktree, e.g. to install dependencies or manage the repo;
+  - start an agent **directly on the main checkout**, without a worktree, e.g. to install dependencies or manage the repo;
   - start a new worktree session;
   - **Add Repository**: paste any repository link (clone URL, or a browser link to a repo, branch, PR or file on GitHub, GitLab, Bitbucket or Azure DevOps) and press Enter. It is cloned on the server into `<repoRoot>/<owner>/<repo>` with the server's git credentials, never prompting. An https link that fails on authentication is retried over SSH. Afterwards you can set an alias or let an agent set it up;
   - **Set Alias…**: the short name used in tmux session names (`devboxAgents.repoAliases`, saved in the remote's settings).
-- **Process overview:** every `claude`/`codex` process with PID, start time, working directory and origin: `tmux:<session>`, `ssh`, `VS Code server`, `daemon` (Codex's managed app-server) or **orphaned**. Leftover and orphaned processes are highlighted, but **never killed automatically** (you can terminate one by hand, with confirmation).
-- **History:** past chats of both agents, grouped by repository/worktree and titled the way the agents name them. *Resume* reopens a chat (`claude --resume` / `codex resume`) in a new tmux session in its original directory. If the chat is already running somewhere, that session is focused instead.
+- **Process overview:** every `claude`/`codex`/`agy` process with PID, start time, working directory and origin: `tmux:<session>`, `ssh`, `VS Code server`, `daemon` (Codex's managed app-server) or **orphaned**. Leftover and orphaned processes are highlighted, but **never killed automatically** (you can terminate one by hand, with confirmation).
+- **History:** past chats of all agents, grouped by repository/worktree and titled the way the agents name them (Antigravity: by the first prompt). *Resume* reopens a chat (`claude --resume` / `codex resume` / `agy --conversation`) in a new tmux session in its original directory. If the chat is already running somewhere, that session is focused instead.
 - **Notifications when an agent waits for you** (permission or question) or finishes its turn, with a badge and a status bar counter. On reconnect you get one summary of the agents that are waiting. This needs the status hooks, see below.
 - **Diffs in the editor:** *Connect Claude to Editor* types `/ide` into the session, so Claude Code shows its diffs in VS Code. This needs the Claude Code VS Code extension in the same window.
 - **Nothing in your repositories:** the extension's state lives in tmux session options and in `~/.local/state/devbox-agents`. Worktrees go outside your repositories by default.
@@ -149,11 +157,14 @@ A process started by a VS Code extension on a remote host stops when VS Code has
 | `devboxAgents.claude.command` / `.args` / `.enabled` | `claude` | How to start Claude Code |
 | `devboxAgents.claude.configDir` | `$CLAUDE_CONFIG_DIR` or `~/.claude` | History source and hooks target |
 | `devboxAgents.codex.command` / `.args` / `.enabled` | `codex` | How to start Codex |
-| `devboxAgents.codex.home` | `$CODEX_HOME` or `~/.codex` | History source and notify target |
+| `devboxAgents.codex.home` | `$CODEX_HOME` or `~/.codex` | History source and hooks target |
+| `devboxAgents.agy.command` / `.args` / `.enabled` | `agy` | How to start the Antigravity CLI |
+| `devboxAgents.agy.dataDir` | `~/.gemini/antigravity-cli` | History source |
 | `devboxAgents.tmuxPath` | `tmux` | tmux binary |
 | `devboxAgents.shell` | `$SHELL` | Login shell the agent runs in; stays open after the agent exits |
 | `devboxAgents.sessionEnv` | `{}` | Extra environment variables for agent sessions |
 | `devboxAgents.focusMode` | `activeSessions` | `activeSessions` (the agent workspace shows the worktrees root, then only the running sessions' worktrees), `swapFolder`, `addFolder`, `newWindow` or `terminalOnly` |
+| `devboxAgents.openAgentWorkspaceOnStart` | `true` | Switch an empty window to the agent workspace when it opens (`activeSessions` only) |
 | `devboxAgents.terminalLocation` | `panel` | `panel` or `editor` |
 | `devboxAgents.connectIdeOnFocus` | `false` | Type `/ide` into a Claude session when it is focused |
 | `devboxAgents.refreshInterval` | `5` | Seconds between refreshes |
@@ -173,7 +184,11 @@ A process started by a VS Code extension on a remote host stops when VS Code has
 
 1. It writes `~/.local/share/devbox-agents/agent-hook.sh`. This bash script, with no other dependencies, dumps each hook payload into the status directory. It always exits 0 and prints nothing, so it cannot block or change the agent.
 2. It adds hooks for `Notification`, `Stop`, `UserPromptSubmit`, `PostToolUse`, `SessionStart` and `SessionEnd` to `<claude configDir>/settings.json`, keeping everything already in there. A backup is saved as `settings.json.devbox-agents.bak`.
-3. It adds `notify = [".../agent-hook.sh", "codex"]` to Codex's `config.toml`, but only if there is no `notify` yet. Codex reports only finished turns this way, not approval requests.
+3. It adds hooks for `SessionStart`, `UserPromptSubmit`, `PreToolUse`, `PermissionRequest`, `PostToolUse`, `Stop`, `Interrupt` and `SessionEnd` to Codex's `hooks.json` (backup next to it), and `notify = [".../agent-hook.sh", "codex"]` to its `config.toml` if there is no `notify` yet (older Codex versions only have notify, which reports finished turns but not when Codex works or waits).
+
+   **Codex runs new hooks only after you trust them.** Start Codex once, run `/hooks` and trust the Devbox Agents hooks. Until then Codex sessions show "finished" but never "working" or "waiting".
+
+Antigravity (`agy`) does not report its status yet; its sessions show "agent active · no status".
 
 Without the hooks a session shows "agent active · no status", and the extension offers to install them when it starts (again after a provisioning run removed them; "Don't Ask Again" stops that). The hooks apply to agents started after the install. If your agent config is generated (dotfiles, provisioning scripts), add the hooks there instead, or the next run may remove them:
 
@@ -186,6 +201,16 @@ Without the hooks a session shows "agent active · no status", and the extension
   "PostToolUse":      [{ "matcher": "*", "hooks": [{ "type": "command", "command": "~/.local/share/devbox-agents/agent-hook.sh claude", "timeout": 5 }] }],
   "SessionStart":     [{ "hooks": [{ "type": "command", "command": "~/.local/share/devbox-agents/agent-hook.sh claude", "timeout": 5 }] }],
   "SessionEnd":       [{ "hooks": [{ "type": "command", "command": "~/.local/share/devbox-agents/agent-hook.sh claude", "timeout": 5 }] }]
+}
+```
+
+```jsonc
+// ~/.codex/hooks.json (same shape as Claude's; trust them with /hooks in Codex)
+"hooks": {
+  "UserPromptSubmit":  [{ "hooks": [{ "type": "command", "command": "~/.local/share/devbox-agents/agent-hook.sh codex", "timeout": 5 }] }],
+  "PermissionRequest": [{ "matcher": "*", "hooks": [{ "type": "command", "command": "~/.local/share/devbox-agents/agent-hook.sh codex", "timeout": 5 }] }],
+  "Stop":              [{ "hooks": [{ "type": "command", "command": "~/.local/share/devbox-agents/agent-hook.sh codex", "timeout": 5 }] }]
+  // … plus SessionStart, PreToolUse and PostToolUse (matcher "*"), Interrupt and SessionEnd (timeout 3)
 }
 ```
 
@@ -205,7 +230,7 @@ Sessions started by the extension carry `DEVBOX_AGENTS_SESSION=<tmux session>` i
 - **Sandboxed agents and worktrees:** a commit in a worktree writes to the *main* repository's `.git` directory. If your agent sandbox only allows writes below the working directory, add the repositories' `.git` directories to its writable paths, or commit outside the sandbox.
 - **Leftover processes:** the Claude Code VS Code extension sometimes leaves old `claude` processes behind after a reconnect. They show up as *VS Code server* or *orphaned* in *Agent Processes*.
 - **Codex's app-server daemon** (`codex app-server --managed-daemon`) is detached on purpose. It shows as `daemon`, not as orphaned.
-- **Remote Control / mobile:** sessions are plain `claude`/`codex` processes, so their own remote features work as usual. The extension does not integrate with them.
+- **Remote Control / mobile:** sessions are plain `claude`/`codex`/`agy` processes, so their own remote features work as usual. The extension does not integrate with them.
 
 ## Development
 

@@ -2,16 +2,18 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import * as vscode from 'vscode';
+import type { AgentAvailability } from './agents';
 import type { Config } from './config';
 import * as git from './core/git';
 import type { Chat } from './core/history';
 import { deleteStatus } from './core/status';
 import { OPT, SESSION_ENV } from './core/tmux';
-import { AGENT_LABEL, expandHome, isWithin, randomSlug, repoShortName, shQuote, slugify, tildify, tmuxSafe, type AgentKind } from './core/util';
+import { AGENT_KINDS, AGENT_LABEL, isWithin, randomSlug, repoShortName, shQuote, slugify, tildify, tmuxSafe, type AgentKind } from './core/util';
 import type { Model, Session } from './model';
 
 const TERMINAL_PREFIX = 'agent: ';
 const PENDING_FOCUS = 'pendingFocus';
+const AUTO_OPENED_AT = 'autoOpenedAgentWorkspaceAt';
 
 function agentWorkspaceFile(): string {
   const base = process.env.XDG_DATA_HOME || path.join(os.homedir(), '.local', 'share');
@@ -39,6 +41,7 @@ export class SessionActions {
     private readonly log: vscode.OutputChannel,
     /** Remembers the last repository and agent, so Enter repeats the previous choice. */
     private readonly state: vscode.Memento,
+    private readonly agents: AgentAvailability,
   ) {}
 
   // ---- creating ---------------------------------------------------------------------------------
@@ -57,8 +60,8 @@ export class SessionActions {
       }
       return;
     }
-    const agents = this.enabledAgents();
-    if (agents.length === 0) return void vscode.window.showErrorMessage('Both agents are disabled in the settings.');
+    const agents = await this.availableAgents();
+    if (agents.length === 0) return;
 
     let repo = repoHint ?? this.defaultRepo(repos);
     let base = await this.defaultBase(repo);
@@ -238,10 +241,11 @@ export class SessionActions {
     await this.model.refresh();
 
     const alias = 'Set Alias…';
-    const setup = this.enabledAgents().map((k) => `Set Up with ${AGENT_LABEL[k]}`);
+    const kinds = await this.agents.available();
+    const setup = kinds.map((k) => `Set Up with ${AGENT_LABEL[k]}`);
     const pick = await vscode.window.showInformationMessage(`Cloned ${link.name} into ${tildify(dir)}.`, ...setup, alias);
     if (pick === alias) return this.setAlias(dir);
-    const agent = this.enabledAgents().find((k) => pick === `Set Up with ${AGENT_LABEL[k]}`);
+    const agent = kinds.find((k) => pick === `Set Up with ${AGENT_LABEL[k]}`);
     if (agent) await this.startInRepo(dir, agent);
   }
 
@@ -364,10 +368,12 @@ export class SessionActions {
   }): Promise<void> {
     const cfg = this.cfg();
     const ac = cfg.agents[o.agent];
-    const args =
-      o.agent === 'claude'
-        ? [...ac.args, ...(o.resumeId ? ['--resume', o.resumeId] : []), ...o.agentArgs]
-        : [...ac.args, ...(o.resumeId ? ['resume', o.resumeId] : []), ...o.agentArgs];
+    const resume: Record<AgentKind, string[]> = {
+      claude: ['--resume'],
+      codex: ['resume'],
+      agy: ['--conversation'],
+    };
+    const args = [...ac.args, ...(o.resumeId ? [...resume[o.agent], o.resumeId] : []), ...o.agentArgs];
     const cmd = [ac.command, ...args].map(shQuote).join(' ');
     const script = `${cmd}; printf '\\n[%s exited. This shell stays open; the tmux session is %s.]\\n' ${shQuote(AGENT_LABEL[o.agent])} ${shQuote(o.name)}; exec ${shQuote(cfg.shell)} -l`;
     this.log.appendLine(`[tmux] new-session ${o.name} in ${o.dir}: ${cmd}`);
@@ -399,15 +405,25 @@ export class SessionActions {
     return pick?.repo;
   }
 
-  private enabledAgents(): AgentKind[] {
-    const cfg = this.cfg();
-    return (['claude', 'codex'] as AgentKind[]).filter((k) => cfg.agents[k].enabled);
+  /** Enabled and installed agents; explains what to do when there are none. */
+  private async availableAgents(): Promise<AgentKind[]> {
+    const kinds = await this.agents.available();
+    if (kinds.length === 0) {
+      const cfg = this.cfg();
+      const enabled = AGENT_KINDS.filter((k) => cfg.agents[k].enabled);
+      const open = 'Open Settings';
+      const msg = enabled.length
+        ? `No agent CLI found on this machine (looked for ${enabled.map((k) => `\`${cfg.agents[k].command}\``).join(', ')} in a login shell). Install Claude Code, Codex or Antigravity (agy) here, or set its command in the settings.`
+        : 'All agents are disabled in the settings.';
+      if ((await vscode.window.showErrorMessage(msg, open)) === open) void vscode.commands.executeCommand('devboxAgents.openSettings');
+    }
+    return kinds;
   }
 
   private async pickAgent(): Promise<AgentKind | undefined> {
     const cfg = this.cfg();
-    const kinds = this.enabledAgents();
-    if (kinds.length === 0) return void vscode.window.showErrorMessage('Both agents are disabled in the settings.');
+    const kinds = await this.availableAgents();
+    if (kinds.length === 0) return;
     if (kinds.length === 1) return kinds[0];
     const pick = await vscode.window.showQuickPick(
       kinds.map((k) => ({ label: AGENT_LABEL[k], description: cfg.agents[k].command, agent: k })),
@@ -607,8 +623,52 @@ export class SessionActions {
     return !!extra && added.includes(extra);
   }
 
+  /**
+   * activeSessions mode: a window opened without a folder (e.g. a fresh Remote-SSH connection)
+   * switches to the agent workspace right away, so the reload happens now and not on the first
+   * focus. Nothing is lost in an empty window. Returns true when the window is about to reload.
+   */
+  async openAgentWorkspaceOnStart(): Promise<boolean> {
+    const cfg = this.cfg();
+    if (!cfg.openAgentWorkspaceOnStart || cfg.focusMode !== 'activeSessions' || inAgentWorkspace()) return false;
+    if (vscode.workspace.workspaceFolders?.length || vscode.workspace.workspaceFile) return false;
+    // Back in an empty window right after an automatic switch: the workspace was closed on purpose
+    // (or failed to open). Don't loop.
+    if (Date.now() - (this.state.get<number>(AUTO_OPENED_AT) ?? 0) < 60_000) return false;
+    const root = cfg.worktreesRoot;
+    const dirs = [root, ...this.activeSessionDirs().filter((d) => d !== root)];
+    if (!this.writeAgentWorkspace(dirs.map((d) => ({ path: d, name: this.folderName(d) })))) return false;
+    await this.state.update(AUTO_OPENED_AT, Date.now());
+    this.log.appendLine('[focus] empty window: opening the agent workspace');
+    await vscode.commands.executeCommand('vscode.openFolder', vscode.Uri.file(agentWorkspaceFile()), { forceReuseWindow: true });
+    return true;
+  }
+
+  /** Writes the agent workspace file with these folders, keeping other settings in it. */
+  private writeAgentWorkspace(folders: { path: string; name?: string }[]): boolean {
+    const file = agentWorkspaceFile();
+    let ws: { folders?: unknown[]; [k: string]: unknown } = {};
+    try {
+      ws = JSON.parse(fs.readFileSync(file, 'utf8'));
+    } catch {
+      // new file, or not plain JSON: start fresh
+    }
+    ws.folders = folders;
+    try {
+      fs.mkdirSync(path.dirname(file), { recursive: true });
+      fs.mkdirSync(this.cfg().worktreesRoot, { recursive: true });
+      fs.writeFileSync(file, JSON.stringify(ws, null, 2) + '\n');
+      return true;
+    } catch (e) {
+      void this.fail('Could not write the agent workspace', e);
+      return false;
+    }
+  }
+
   private async switchToAgentWorkspace(s: Session, dir: string, confirmed = false): Promise<void> {
     if (this.declinedWorkspaceSwitch) return;
+    // An empty window has nothing to lose: switch without asking.
+    if (!vscode.workspace.workspaceFolders?.length && !vscode.workspace.workspaceFile) confirmed = true;
     const file = agentWorkspaceFile();
     const open = 'Open Agent Workspace';
     const notNow = 'Not Now';
@@ -640,25 +700,13 @@ export class SessionActions {
 
     const current = vscode.workspace.workspaceFolders?.[0]?.uri;
     const anchor = current && current.fsPath !== dir ? current.fsPath : s.tmux.repo;
-    let ws: { folders?: unknown[]; [k: string]: unknown } = {};
-    try {
-      ws = JSON.parse(fs.readFileSync(file, 'utf8'));
-    } catch {
-      // new file, or not plain JSON: start fresh
-    }
     // Folder 0 is a stable anchor (changing it restarts the extension host); agent worktrees go after
     // it. activeSessions anchors on the worktrees root and lists only the running sessions.
     const root = this.cfg().worktreesRoot;
-    ws.folders = this.cfg().focusMode === 'activeSessions'
+    const folders = this.cfg().focusMode === 'activeSessions'
       ? [root, ...new Set([dir, ...this.activeSessionDirs()].filter((d) => d !== root))].map((d) => ({ path: d, name: this.folderName(d) }))
-      : [...(anchor && anchor !== dir ? [{ path: anchor }] : []), { path: dir, name: workspaceFolderName(this.cfg().worktreesRoot, dir) }];
-    try {
-      fs.mkdirSync(path.dirname(file), { recursive: true });
-      fs.mkdirSync(root, { recursive: true });
-      fs.writeFileSync(file, JSON.stringify(ws, null, 2) + '\n');
-    } catch (e) {
-      return void this.fail('Could not write the agent workspace', e);
-    }
+      : [...(anchor && anchor !== dir ? [{ path: anchor }] : []), { path: dir, name: workspaceFolderName(root, dir) }];
+    if (!this.writeAgentWorkspace(folders)) return;
     await this.state.update(PENDING_FOCUS, { name: s.name, at: Date.now() });
     this.log.appendLine(`[focus] switching window to ${file}`);
     await vscode.commands.executeCommand('vscode.openFolder', vscode.Uri.file(file), { forceReuseWindow: true });
