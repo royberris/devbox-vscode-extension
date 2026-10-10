@@ -2,6 +2,6 @@
 !dist/extension.js
 !media/**
 !package.json
-!README.md
 !LICENSE
 !CHANGELOG.md
+media/icon.svg
