@@ -43,6 +43,16 @@ The extension installs no software on your server and never stores anything in y
 4. Run **Devbox Agents: Install Status Hooks…** once for notifications.
 5. Click **+** in the *Sessions* view.
 
+## Recommended layout
+
+![Devbox Agents in VS Code: explorer with the agent sessions on the left, the open file in the middle, the agent's terminal on the right](https://raw.githubusercontent.com/royberris/devbox-vscode-extension/main/media/recommended-layout.png)
+
+- **Left:** the Explorer, with *Devbox Agents: Sessions* docked below it. Drag the *Sessions* view from the Devbox Agents sidebar onto the Explorer.
+- **Middle:** the file you are looking at. Claude's diffs open here too (*Connect Claude to Editor*).
+- **Right:** the terminal with the agent session. Right-click the panel title → *Panel Position* → *Right*, or set `"workbench.panel.defaultLocation": "right"`.
+
+With the default `focusMode` (`activeSessions`) the explorer shows exactly the worktrees of your running sessions, and clicking a session opens its terminal on the right.
+
 ## Why tmux?
 
 A process started by a VS Code extension on a remote host is stopped when VS Code has been disconnected for a few hours, and a pending permission prompt is lost with it. Agents in tmux survive indefinitely, so Devbox Agents is a UI over tmux sessions: it never runs an agent as its own child process.

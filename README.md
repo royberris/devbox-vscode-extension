@@ -116,6 +116,16 @@ The extension declares `"extensionKind": ["workspace"]`, so in a Remote-SSH, WSL
 └────────────────────────────────────────────┘
 ```
 
+## Recommended layout
+
+![Devbox Agents in VS Code: explorer with the agent sessions on the left, the open file in the middle, the agent's terminal on the right](media/recommended-layout.png)
+
+- **Left:** the Explorer, with *Devbox Agents: Sessions* docked below it. Drag the *Sessions* view from the Devbox Agents sidebar onto the Explorer.
+- **Middle:** the file you are looking at. Claude's diffs open here too (*Connect Claude to Editor*).
+- **Right:** the terminal with the agent session. Right-click the panel title → *Panel Position* → *Right*, or set `"workbench.panel.defaultLocation": "right"`.
+
+With the default `focusMode` (`activeSessions`) the explorer shows exactly the worktrees of your running sessions, and clicking a session opens its terminal on the right.
+
 ## Why tmux, and not a process started by the extension
 
 A process started by a VS Code extension on a remote host stops when VS Code has been disconnected for longer than `remote.SSH.reconnectionGraceTime` (3 hours by default). A pending permission prompt is lost then, and it is not asked again when you resume. Processes in tmux survive indefinitely. So this extension is a **UI over tmux sessions**: it never runs an agent as its own child process, and it reads all state from the server (tmux, `git worktree list`, `/proc`), not from its own storage.
