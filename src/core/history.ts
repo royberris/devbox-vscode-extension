@@ -1,11 +1,13 @@
 import * as fs from 'fs';
 import * as path from 'path';
+import { fileURLToPath } from 'url';
 import { oneLine, type AgentKind } from './util';
 
 /**
  * Reads chat history written by the agents themselves:
  *  - Claude Code: <configDir>/projects/<encoded-cwd>/<session-id>.jsonl
  *  - Codex:       <codexHome>/sessions/YYYY/MM/DD/rollout-*.jsonl (+ session_index.jsonl for names)
+ *  - Antigravity: <dataDir>/conversations/<conversation-id>.db (SQLite with protobuf blobs)
  * Only the head and tail of each file are read; transcripts can be large.
  */
 
@@ -217,6 +219,190 @@ export function readCodexHistory(codexHome: string, since: Date, now = new Date(
       } catch {
         // unreadable or vanished file: skip
       }
+    }
+  }
+  return chats;
+}
+
+// ---- Antigravity (agy) ----------------------------------------------------------------------
+
+const utf8 = new TextDecoder('utf-8', { fatal: true });
+
+function readVarint(buf: Uint8Array, pos: number): [number, number] | undefined {
+  let value = 0;
+  for (let shift = 0; shift < 64 && pos < buf.length; shift += 7) {
+    const b = buf[pos++];
+    value += (b & 0x7f) * 2 ** shift;
+    if (b < 0x80) return [value, pos];
+  }
+  return undefined;
+}
+
+function asText(buf: Uint8Array): string | undefined {
+  try {
+    const s = utf8.decode(buf);
+    // printable text: no control characters except whitespace
+    return s.length > 0 && !/[\x00-\x08\x0e-\x1f\x7f]/.test(s) ? s : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * The text fields of a protobuf message, depth-first and in order. agy's schema is not public,
+ * so this walks the wire format and treats every length-delimited field that is printable UTF-8
+ * as text, and every other one as a nested message.
+ */
+export function protoStrings(buf: Uint8Array, out: string[] = [], depth = 0): string[] {
+  const walk = (b: Uint8Array, d: number, acc: string[]): boolean => {
+    let pos = 0;
+    while (pos < b.length) {
+      const key = readVarint(b, pos);
+      if (!key || key[0] === 0) return false;
+      pos = key[1];
+      switch (key[0] % 8) {
+        case 0: {
+          const v = readVarint(b, pos);
+          if (!v) return false;
+          pos = v[1];
+          break;
+        }
+        case 1:
+          pos += 8;
+          break;
+        case 5:
+          pos += 4;
+          break;
+        case 2: {
+          const len = readVarint(b, pos);
+          if (!len || len[1] + len[0] > b.length) return false;
+          const sub = b.subarray(len[1], len[1] + len[0]);
+          pos = len[1] + len[0];
+          const text = asText(sub);
+          if (text !== undefined) acc.push(text);
+          else if (d < 12) {
+            const nested: string[] = [];
+            if (walk(sub, d + 1, nested)) acc.push(...nested);
+          }
+          break;
+        }
+        default:
+          return false;
+      }
+      if (pos > b.length) return false;
+    }
+    return true;
+  };
+  const acc: string[] = [];
+  if (walk(buf, depth, acc)) out.push(...acc);
+  return out;
+}
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** The workspace of a conversation: the first file:// URI in its metadata. */
+export function agyCwd(strings: string[]): string | undefined {
+  for (const s of strings) {
+    const m = /^\s*(file:\/\/\/\S+)/.exec(s);
+    if (!m) continue;
+    try {
+      return fileURLToPath(m[1]);
+    } catch {
+      // not a valid file URI
+    }
+  }
+  return undefined;
+}
+
+/** The user's prompt in a user-input step: the first text field that reads like a sentence. */
+export function agyPrompt(strings: string[]): string | undefined {
+  return strings.find((s) => {
+    const t = s.trim();
+    return t.length > 1 && !UUID.test(t) && !/^[\[{]/.test(t) && !/^file:\/\//.test(t) && /\s/.test(t) && isRealPrompt(t);
+  });
+}
+
+/** Step type of the user's input in agy's `steps` table. */
+const AGY_USER_INPUT = 14;
+
+type SqliteModule = { DatabaseSync: new (file: string, opts?: { readOnly?: boolean }) => any };
+let sqlite: SqliteModule | null | undefined;
+
+/** node:sqlite exists from Node 22.5; older VS Code versions run an older Node. */
+function loadSqlite(): SqliteModule | null {
+  if (sqlite === undefined) {
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      sqlite = require('node:sqlite') as SqliteModule;
+    } catch {
+      sqlite = null;
+    }
+  }
+  return sqlite;
+}
+
+export interface AgyMeta {
+  cwd?: string;
+  prompt?: string;
+}
+
+export function readAgyConversation(file: string): AgyMeta {
+  const mod = loadSqlite();
+  if (mod) {
+    const db = new mod.DatabaseSync(file, { readOnly: true });
+    try {
+      const meta = db.prepare('SELECT data FROM trajectory_metadata_blob').all() as { data?: Uint8Array }[];
+      const step = db.prepare('SELECT step_payload FROM steps WHERE step_type = ? ORDER BY idx LIMIT 1').get(AGY_USER_INPUT) as
+        | { step_payload?: Uint8Array }
+        | undefined;
+      return {
+        cwd: agyCwd(meta.flatMap((r) => (r.data ? protoStrings(r.data) : []))),
+        prompt: step?.step_payload ? agyPrompt(protoStrings(step.step_payload)) : undefined,
+      };
+    } finally {
+      db.close();
+    }
+  }
+  // Without SQLite: the workspace URI is stored as plain text somewhere in the file.
+  const fd = fs.openSync(file, 'r');
+  try {
+    const buf = Buffer.alloc(Math.min(fs.fstatSync(fd).size, 4 * 1024 * 1024));
+    fs.readSync(fd, buf, 0, buf.length, 0);
+    const m = /file:\/\/\/[^\s"'\x00-\x1f\x7f-\xff]+/.exec(buf.toString('latin1'));
+    return { cwd: m ? agyCwd([m[0]]) : undefined };
+  } finally {
+    fs.closeSync(fd);
+  }
+}
+
+export function readAgyHistory(dataDir: string, since: Date): Chat[] {
+  const dir = path.join(dataDir, 'conversations');
+  const chats: Chat[] = [];
+  let files: string[];
+  try {
+    files = fs.readdirSync(dir).filter((f) => f.endsWith('.db'));
+  } catch {
+    return chats;
+  }
+  const withSqlite = loadSqlite() !== null;
+  for (const f of files) {
+    const file = path.join(dir, f);
+    try {
+      const st = fs.statSync(file);
+      if (st.mtime < since || st.size === 0) continue;
+      const m = readAgyConversation(file);
+      if (withSqlite && !m.prompt) continue; // no user input: an empty or internal conversation
+      chats.push({
+        agent: 'agy',
+        id: path.basename(f, '.db'),
+        cwd: m.cwd,
+        title: oneLine(m.prompt ?? '(Antigravity chat)'),
+        started: st.birthtime.getTime() > 0 ? st.birthtime : undefined,
+        updated: st.mtime,
+        file,
+      });
+    } catch {
+      // locked, unreadable or vanished file: skip
     }
   }
   return chats;

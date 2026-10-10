@@ -1,5 +1,5 @@
 import { run, runOk } from './exec';
-import type { AgentKind } from './util';
+import { isAgentKind, type AgentKind } from './util';
 
 /** tmux user options that mark a session as managed by this extension. */
 export const OPT = {
@@ -54,7 +54,7 @@ export function parseSessions(out: string): TmuxSession[] {
       name,
       created: new Date(Number(created) * 1000),
       attachedClients: Number(attached) || 0,
-      agent: agent === 'claude' || agent === 'codex' ? agent : undefined,
+      agent: isAgentKind(agent) ? agent : undefined,
       repo: repo || undefined,
       worktree: worktree || undefined,
       branch: branch || undefined,

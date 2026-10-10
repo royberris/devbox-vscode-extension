@@ -1,6 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as vscode from 'vscode';
+import { AgentAvailability } from './agents';
 import { readConfig } from './config';
 import type { Worktree } from './core/git';
 import type { Chat } from './core/history';
@@ -21,7 +22,9 @@ export function activate(context: vscode.ExtensionContext): void {
   const cfg = readConfig;
   const model = new Model(cfg, log);
   const history = new HistoryModel(cfg, () => model.snapshot.repos, log);
-  const actions = new SessionActions(model, cfg, log, context.globalState);
+  const agents = new AgentAvailability(cfg, log);
+  void agents.updateContext();
+  const actions = new SessionActions(model, cfg, log, context.globalState, agents);
 
   const sessionsProvider = new SessionsProvider(model, cfg);
   const sessionsView = vscode.window.createTreeView('devboxAgents.sessions', { treeDataProvider: sessionsProvider, showCollapseAll: true });
@@ -70,6 +73,8 @@ export function activate(context: vscode.ExtensionContext): void {
       if (!e.affectsConfiguration('devboxAgents')) return;
       if (e.affectsConfiguration('devboxAgents.refreshInterval')) schedule();
       if (e.affectsConfiguration('devboxAgents.statusDir')) watchStatus();
+      agents.clear();
+      void agents.updateContext();
       void model.refresh();
       void history.refresh();
     },
@@ -109,7 +114,7 @@ export function activate(context: vscode.ExtensionContext): void {
     if (firstSnapshot) {
       firstSnapshot = false;
       void actions.resumePendingFocus();
-      void offerHooks(cfg, log, context.globalState);
+      void offerHooks(cfg, log, context.globalState, agents);
       for (const s of snap.statuses) seen.set(s.key, s);
       if (waiting.length) {
         void vscode.window
@@ -141,12 +146,16 @@ export function activate(context: vscode.ExtensionContext): void {
   type RepoInfoArg = { type: 'repoInfo'; info: { path: string } };
   reg('devboxAgents.startClaudeInRepo', (arg: RepoInfoArg) => actions.startInRepo(arg.info.path, 'claude'));
   reg('devboxAgents.startCodexInRepo', (arg: RepoInfoArg) => actions.startInRepo(arg.info.path, 'codex'));
+  reg('devboxAgents.startAgyInRepo', (arg: RepoInfoArg) => actions.startInRepo(arg.info.path, 'agy'));
   reg('devboxAgents.trustFolders', () => actions.trustFolders());
   reg('devboxAgents.addRepository', () => actions.addRepository());
   reg('devboxAgents.setAlias', (arg: RepoInfoArg) => actions.setAlias(arg.info.path));
   reg('devboxAgents.newSessionForRepo', (arg: RepoInfoArg) => actions.newSession(arg.info.path));
   reg('devboxAgents.newSession', (arg?: RepoArg) => actions.newSession(arg?.type === 'repo' ? arg.group.repo : undefined));
-  reg('devboxAgents.refresh', () => Promise.all([model.refresh(), history.refresh()]));
+  reg('devboxAgents.refresh', () => {
+    agents.clear();
+    return Promise.all([model.refresh(), history.refresh(), agents.updateContext()]);
+  });
   reg('devboxAgents.focusSession', (arg?: SessionArg) => {
     const s = sessionOf(arg);
     if (s) return actions.focus(model.findSession(s.name) ?? s);
@@ -219,8 +228,8 @@ function claudeHooksMissing(c: ReturnType<typeof readConfig>): boolean {
 }
 
 /** Without hooks every session shows "no status"; offer to install them (again, e.g. after a setup script reset settings.json). */
-async function offerHooks(cfg: typeof readConfig, log: vscode.OutputChannel, state: vscode.Memento): Promise<void> {
-  if (state.get<boolean>(HOOKS_PROMPT_DISMISSED) || !claudeHooksMissing(cfg())) return;
+async function offerHooks(cfg: typeof readConfig, log: vscode.OutputChannel, state: vscode.Memento, agents: AgentAvailability): Promise<void> {
+  if (state.get<boolean>(HOOKS_PROMPT_DISMISSED) || !claudeHooksMissing(cfg()) || !(await agents.isInstalled('claude'))) return;
   log.appendLine('[hooks] Claude status hooks are not installed');
   const install = 'Install';
   const never = "Don't Ask Again";

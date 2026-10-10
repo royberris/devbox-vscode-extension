@@ -1,7 +1,7 @@
 {
   "name": "devbox-agents",
   "displayName": "Devbox Agents",
-  "description": "Start, follow and resume AI coding agents (Claude Code, Codex) in tmux sessions and git worktrees on your remote dev box. Agents keep running when your laptop is closed.",
+  "description": "Start, follow and resume AI coding agents (Claude Code, Codex, Antigravity) in tmux sessions and git worktrees on your remote dev box. Agents keep running when your laptop is closed.",
   "version": "0.1.0",
   "publisher": "royberris",
   "license": "MIT",
@@ -24,6 +24,7 @@
   "keywords": [
     "claude",
     "codex",
+    "antigravity",
     "agents",
     "tmux",
     "worktree",
@@ -208,6 +209,12 @@
         "icon": "$(hubot)"
       },
       {
+        "command": "devboxAgents.startAgyInRepo",
+        "title": "Start Antigravity on Main Checkout",
+        "category": "Devbox Agents",
+        "icon": "$(rocket)"
+      },
+      {
         "command": "devboxAgents.newSessionForRepo",
         "title": "New Worktree Session…",
         "category": "Devbox Agents",
@@ -365,33 +372,43 @@
         },
         {
           "command": "devboxAgents.startClaudeInRepo",
-          "when": "viewItem == repoInfo && config.devboxAgents.claude.enabled",
+          "when": "viewItem == repoInfo && devboxAgents.agent.claude",
           "group": "inline@1"
         },
         {
           "command": "devboxAgents.startCodexInRepo",
-          "when": "viewItem == repoInfo && config.devboxAgents.codex.enabled",
+          "when": "viewItem == repoInfo && devboxAgents.agent.codex",
           "group": "inline@2"
+        },
+        {
+          "command": "devboxAgents.startAgyInRepo",
+          "when": "viewItem == repoInfo && devboxAgents.agent.agy",
+          "group": "inline@3"
         },
         {
           "command": "devboxAgents.newSessionForRepo",
           "when": "viewItem == repoInfo",
-          "group": "inline@3"
+          "group": "inline@4"
         },
         {
           "command": "devboxAgents.startClaudeInRepo",
-          "when": "viewItem == repoInfo && config.devboxAgents.claude.enabled",
+          "when": "viewItem == repoInfo && devboxAgents.agent.claude",
           "group": "1_start@1"
         },
         {
           "command": "devboxAgents.startCodexInRepo",
-          "when": "viewItem == repoInfo && config.devboxAgents.codex.enabled",
+          "when": "viewItem == repoInfo && devboxAgents.agent.codex",
           "group": "1_start@2"
+        },
+        {
+          "command": "devboxAgents.startAgyInRepo",
+          "when": "viewItem == repoInfo && devboxAgents.agent.agy",
+          "group": "1_start@3"
         },
         {
           "command": "devboxAgents.newSessionForRepo",
           "when": "viewItem == repoInfo",
-          "group": "1_start@3"
+          "group": "1_start@4"
         },
         {
           "command": "devboxAgents.setAlias",
@@ -458,6 +475,10 @@
         },
         {
           "command": "devboxAgents.startCodexInRepo",
+          "when": "false"
+        },
+        {
+          "command": "devboxAgents.startAgyInRepo",
           "when": "false"
         },
         {
@@ -538,7 +559,7 @@
           "type": "boolean",
           "default": true,
           "scope": "machine",
-          "description": "Offer Claude Code when starting a new session."
+          "description": "Offer Claude Code when starting a new session. Hidden automatically when its command is not found on the server."
         },
         "devboxAgents.claude.command": {
           "type": "string",
@@ -565,7 +586,7 @@
           "type": "boolean",
           "default": true,
           "scope": "machine",
-          "description": "Offer Codex when starting a new session."
+          "description": "Offer Codex when starting a new session. Hidden automatically when its command is not found on the server."
         },
         "devboxAgents.codex.command": {
           "type": "string",
@@ -587,6 +608,33 @@
           "default": "",
           "scope": "machine",
           "markdownDescription": "Codex home directory (history is read from `<home>/sessions`). Empty: `$CODEX_HOME` or `~/.codex`."
+        },
+        "devboxAgents.agy.enabled": {
+          "type": "boolean",
+          "default": true,
+          "scope": "machine",
+          "description": "Offer Antigravity (agy) when starting a new session. Hidden automatically when its command is not found on the server."
+        },
+        "devboxAgents.agy.command": {
+          "type": "string",
+          "default": "agy",
+          "scope": "machine",
+          "description": "Command that starts the Antigravity CLI on the server (name on PATH of a login shell, or absolute path)."
+        },
+        "devboxAgents.agy.args": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "scope": "machine",
+          "description": "Extra arguments passed to agy for new and resumed sessions."
+        },
+        "devboxAgents.agy.dataDir": {
+          "type": "string",
+          "default": "",
+          "scope": "machine",
+          "markdownDescription": "Antigravity CLI data directory (history is read from `<dataDir>/conversations`). Empty: `~/.gemini/antigravity-cli`."
         },
         "devboxAgents.tmuxPath": {
           "type": "string",

@@ -2,12 +2,13 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import * as vscode from 'vscode';
+import type { AgentAvailability } from './agents';
 import type { Config } from './config';
 import * as git from './core/git';
 import type { Chat } from './core/history';
 import { deleteStatus } from './core/status';
 import { OPT, SESSION_ENV } from './core/tmux';
-import { AGENT_LABEL, expandHome, isWithin, randomSlug, repoShortName, shQuote, slugify, tildify, tmuxSafe, type AgentKind } from './core/util';
+import { AGENT_KINDS, AGENT_LABEL, expandHome, isWithin, randomSlug, repoShortName, shQuote, slugify, tildify, tmuxSafe, type AgentKind } from './core/util';
 import type { Model, Session } from './model';
 
 const TERMINAL_PREFIX = 'agent: ';
@@ -39,6 +40,7 @@ export class SessionActions {
     private readonly log: vscode.OutputChannel,
     /** Remembers the last repository and agent, so Enter repeats the previous choice. */
     private readonly state: vscode.Memento,
+    private readonly agents: AgentAvailability,
   ) {}
 
   // ---- creating ---------------------------------------------------------------------------------
@@ -57,8 +59,8 @@ export class SessionActions {
       }
       return;
     }
-    const agents = this.enabledAgents();
-    if (agents.length === 0) return void vscode.window.showErrorMessage('Both agents are disabled in the settings.');
+    const agents = await this.availableAgents();
+    if (agents.length === 0) return;
 
     let repo = repoHint ?? this.defaultRepo(repos);
     let base = await this.defaultBase(repo);
@@ -238,10 +240,11 @@ export class SessionActions {
     await this.model.refresh();
 
     const alias = 'Set Alias…';
-    const setup = this.enabledAgents().map((k) => `Set Up with ${AGENT_LABEL[k]}`);
+    const kinds = await this.agents.available();
+    const setup = kinds.map((k) => `Set Up with ${AGENT_LABEL[k]}`);
     const pick = await vscode.window.showInformationMessage(`Cloned ${link.name} into ${tildify(dir)}.`, ...setup, alias);
     if (pick === alias) return this.setAlias(dir);
-    const agent = this.enabledAgents().find((k) => pick === `Set Up with ${AGENT_LABEL[k]}`);
+    const agent = kinds.find((k) => pick === `Set Up with ${AGENT_LABEL[k]}`);
     if (agent) await this.startInRepo(dir, agent);
   }
 
@@ -364,10 +367,12 @@ export class SessionActions {
   }): Promise<void> {
     const cfg = this.cfg();
     const ac = cfg.agents[o.agent];
-    const args =
-      o.agent === 'claude'
-        ? [...ac.args, ...(o.resumeId ? ['--resume', o.resumeId] : []), ...o.agentArgs]
-        : [...ac.args, ...(o.resumeId ? ['resume', o.resumeId] : []), ...o.agentArgs];
+    const resume: Record<AgentKind, string[]> = {
+      claude: ['--resume'],
+      codex: ['resume'],
+      agy: ['--conversation'],
+    };
+    const args = [...ac.args, ...(o.resumeId ? [...resume[o.agent], o.resumeId] : []), ...o.agentArgs];
     const cmd = [ac.command, ...args].map(shQuote).join(' ');
     const script = `${cmd}; printf '\\n[%s exited. This shell stays open; the tmux session is %s.]\\n' ${shQuote(AGENT_LABEL[o.agent])} ${shQuote(o.name)}; exec ${shQuote(cfg.shell)} -l`;
     this.log.appendLine(`[tmux] new-session ${o.name} in ${o.dir}: ${cmd}`);
@@ -399,15 +404,25 @@ export class SessionActions {
     return pick?.repo;
   }
 
-  private enabledAgents(): AgentKind[] {
-    const cfg = this.cfg();
-    return (['claude', 'codex'] as AgentKind[]).filter((k) => cfg.agents[k].enabled);
+  /** Enabled and installed agents; explains what to do when there are none. */
+  private async availableAgents(): Promise<AgentKind[]> {
+    const kinds = await this.agents.available();
+    if (kinds.length === 0) {
+      const cfg = this.cfg();
+      const enabled = AGENT_KINDS.filter((k) => cfg.agents[k].enabled);
+      const open = 'Open Settings';
+      const msg = enabled.length
+        ? `No agent CLI found on this machine (looked for ${enabled.map((k) => `\`${cfg.agents[k].command}\``).join(', ')} in a login shell). Install Claude Code, Codex or Antigravity (agy) here, or set its command in the settings.`
+        : 'All agents are disabled in the settings.';
+      if ((await vscode.window.showErrorMessage(msg, open)) === open) void vscode.commands.executeCommand('devboxAgents.openSettings');
+    }
+    return kinds;
   }
 
   private async pickAgent(): Promise<AgentKind | undefined> {
     const cfg = this.cfg();
-    const kinds = this.enabledAgents();
-    if (kinds.length === 0) return void vscode.window.showErrorMessage('Both agents are disabled in the settings.');
+    const kinds = await this.availableAgents();
+    if (kinds.length === 0) return;
     if (kinds.length === 1) return kinds[0];
     const pick = await vscode.window.showQuickPick(
       kinds.map((k) => ({ label: AGENT_LABEL[k], description: cfg.agents[k].command, agent: k })),

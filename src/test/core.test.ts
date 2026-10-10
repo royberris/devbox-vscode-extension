@@ -5,7 +5,8 @@ import * as os from 'os';
 import * as path from 'path';
 import { test } from 'node:test';
 import { findRepos, missingDependencies, parseRepoLink, parseStatus as parseGitStatus, parseWorktrees } from '../core/git';
-import { parseClaudeLines, parseCodexLines, readClaudeHistory, readCodexHistory } from '../core/history';
+import { agyCwd, agyPrompt, parseClaudeLines, parseCodexLines, protoStrings, readAgyHistory, readClaudeHistory, readCodexHistory } from '../core/history';
+import { commandAvailable } from '../core/agents';
 import { kindOf, parseStat } from '../core/processes';
 import { hookScript, mergeClaudeHooks, mergeCodexNotify, parseStatus, readStatuses } from '../core/status';
 import { isEmptyServerError, parsePanes, parseSessions } from '../core/tmux';
@@ -103,6 +104,9 @@ test('process classification', () => {
   assert.equal(kindOf('/x/codex-x86_64-unknown-linux-musl', '/x/codex app-server --managed-daemon'), 'codex-daemon');
   assert.equal(kindOf('/usr/bin/node', 'node /home/u/.vscode-server/bin/x/out/server-main.js'), undefined);
   assert.equal(kindOf('/usr/bin/bash', 'bash -lc claude'), undefined);
+  assert.equal(kindOf('/home/u/.local/bin/agy', '/home/u/.local/bin/agy --model x'), 'agy');
+  assert.equal(kindOf('/home/u/.local/bin/agy.1791630693893354150.old (deleted)', 'agy'), 'agy');
+  assert.equal(kindOf('/home/u/.local/bin/agyx', 'agyx'), undefined);
   assert.deepEqual(parseStat('42 (tmux: server) S 1 42 42 0 -1 4194560 1 2 3 4 5 6 7 8 20 0 1 0 98765 1 2'), { ppid: 1, startTicks: 98765 });
 });
 
@@ -154,6 +158,79 @@ test('history readers on disk', () => {
   const cx = readCodexHistory(codex, new Date(now.getTime() - 3_600_000), now);
   assert.equal(cx.length, 1);
   assert.equal(cx[0].title, 'Named thread');
+});
+
+/** Minimal protobuf encoder for the agy tests: fields are [number, string | Buffer | nested fields]. */
+type Field = [number, string | Buffer | Field[]];
+function proto(fields: Field[]): Buffer {
+  const varint = (n: number) => {
+    const out: number[] = [];
+    while (n >= 0x80) {
+      out.push((n & 0x7f) | 0x80);
+      n = Math.floor(n / 128);
+    }
+    out.push(n);
+    return Buffer.from(out);
+  };
+  return Buffer.concat(
+    fields.map(([num, v]) => {
+      const body = typeof v === 'string' ? Buffer.from(v) : Buffer.isBuffer(v) ? v : proto(v);
+      return Buffer.concat([varint((num << 3) | 2), varint(body.length), body]);
+    }),
+  );
+}
+
+test('agy protobuf strings', () => {
+  const payload = proto([
+    [1, 'b$884f8177-2385-4f9c-9e95-19a24b55c28d'],
+    [2, [[1, '884f8177-2385-4f9c-9e95-19a24b55c28d'], [3, [[1, 'Fix de login bug op mobiel']]]]],
+  ]);
+  const strings = protoStrings(payload);
+  assert.ok(strings.includes('Fix de login bug op mobiel'));
+  assert.equal(agyPrompt(strings), 'Fix de login bug op mobiel');
+  assert.equal(agyCwd([' file:///home/u/repos/my%20app', 'file:///other']), '/home/u/repos/my app');
+  assert.equal(agyCwd(['no uri here']), undefined);
+  assert.deepEqual(protoStrings(Buffer.from([0xff, 0xff])), []);
+});
+
+// node:sqlite exists from Node 22.5
+const hasSqlite = (() => {
+  try {
+    require('node:sqlite');
+    return true;
+  } catch {
+    return false;
+  }
+})();
+
+test('agy history on disk', { skip: !hasSqlite && 'node:sqlite not available' }, () => {
+  const { DatabaseSync } = require('node:sqlite');
+  const dir = tmp();
+  fs.mkdirSync(path.join(dir, 'conversations'));
+  const make = (id: string, cwd: string, prompt?: string) => {
+    const db = new DatabaseSync(path.join(dir, 'conversations', `${id}.db`));
+    db.exec('CREATE TABLE trajectory_metadata_blob (id text, data blob); CREATE TABLE steps (idx integer, step_type integer, step_payload blob)');
+    db.prepare('INSERT INTO trajectory_metadata_blob VALUES (?, ?)').run('main', proto([[1, [[2, ` file://${cwd}`]]], [3, 'default-cli-project']]));
+    if (prompt) db.prepare('INSERT INTO steps VALUES (0, 14, ?)').run(proto([[1, 'id-1'], [2, [[1, prompt]]]]));
+    db.prepare('INSERT INTO steps VALUES (1, 15, ?)').run(proto([[1, 'sessionID']]));
+    db.close();
+  };
+  make('aaaaaaaa-0000-0000-0000-000000000001', '/home/u/repos/app', 'Add a dark mode toggle');
+  make('aaaaaaaa-0000-0000-0000-000000000002', '/home/u/repos/app'); // no user input: skipped
+  fs.writeFileSync(path.join(dir, 'conversations', 'broken.db'), 'not a database');
+  const chats = readAgyHistory(dir, new Date(0));
+  assert.equal(chats.length, 1);
+  assert.deepEqual(
+    { agent: chats[0].agent, id: chats[0].id, cwd: chats[0].cwd, title: chats[0].title },
+    { agent: 'agy', id: 'aaaaaaaa-0000-0000-0000-000000000001', cwd: '/home/u/repos/app', title: 'Add a dark mode toggle' },
+  );
+});
+
+test('agent command detection', { skip: process.platform === 'win32' }, async () => {
+  assert.equal(await commandAvailable('sh', '/bin/sh'), true);
+  assert.equal(await commandAvailable('definitely-not-an-agent-cli', '/bin/sh'), false);
+  assert.equal(await commandAvailable('/bin/sh', '/bin/sh'), true);
+  assert.equal(await commandAvailable('/nonexistent/agy', '/bin/sh'), false);
 });
 
 test('status parsing', () => {

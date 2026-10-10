@@ -1,9 +1,18 @@
 import * as os from 'os';
 import * as path from 'path';
 
-export type AgentKind = 'claude' | 'codex';
+export type AgentKind = 'claude' | 'codex' | 'agy';
 
-export const AGENT_LABEL: Record<AgentKind, string> = { claude: 'Claude Code', codex: 'Codex' };
+export const AGENT_KINDS: readonly AgentKind[] = ['claude', 'codex', 'agy'];
+
+export const AGENT_LABEL: Record<AgentKind, string> = { claude: 'Claude Code', codex: 'Codex', agy: 'Antigravity' };
+
+/** Codicon per agent, also used for the "Start … on Main Checkout" commands. */
+export const AGENT_ICON: Record<AgentKind, string> = { claude: 'sparkle', codex: 'hubot', agy: 'rocket' };
+
+export function isAgentKind(s: unknown): s is AgentKind {
+  return typeof s === 'string' && (AGENT_KINDS as readonly string[]).includes(s);
+}
 
 export function expandHome(p: string): string {
   if (p === '~') return os.homedir();
