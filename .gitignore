@@ -5,3 +5,4 @@ out/
 
 # Internal notes, not for publication
 SPEC.md
+.DS_Store
