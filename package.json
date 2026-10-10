@@ -2,7 +2,7 @@
   "name": "devbox-agents",
   "displayName": "Devbox Agents",
   "description": "Start, follow and resume AI coding agents (Claude Code, Codex, Antigravity) in tmux sessions and git worktrees on your remote dev box. Agents keep running when your laptop is closed.",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "publisher": "royberris",
   "license": "MIT",
   "icon": "media/icon.png",
