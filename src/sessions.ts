@@ -13,6 +13,7 @@ import type { Model, Session } from './model';
 
 const TERMINAL_PREFIX = 'agent: ';
 const PENDING_FOCUS = 'pendingFocus';
+const AUTO_OPENED_AT = 'autoOpenedAgentWorkspaceAt';
 
 function agentWorkspaceFile(): string {
   const base = process.env.XDG_DATA_HOME || path.join(os.homedir(), '.local', 'share');
@@ -622,8 +623,52 @@ export class SessionActions {
     return !!extra && added.includes(extra);
   }
 
+  /**
+   * activeSessions mode: a window opened without a folder (e.g. a fresh Remote-SSH connection)
+   * switches to the agent workspace right away, so the reload happens now and not on the first
+   * focus. Nothing is lost in an empty window. Returns true when the window is about to reload.
+   */
+  async openAgentWorkspaceOnStart(): Promise<boolean> {
+    const cfg = this.cfg();
+    if (!cfg.openAgentWorkspaceOnStart || cfg.focusMode !== 'activeSessions' || inAgentWorkspace()) return false;
+    if (vscode.workspace.workspaceFolders?.length || vscode.workspace.workspaceFile) return false;
+    // Back in an empty window right after an automatic switch: the workspace was closed on purpose
+    // (or failed to open). Don't loop.
+    if (Date.now() - (this.state.get<number>(AUTO_OPENED_AT) ?? 0) < 60_000) return false;
+    const root = cfg.worktreesRoot;
+    const dirs = [root, ...this.activeSessionDirs().filter((d) => d !== root)];
+    if (!this.writeAgentWorkspace(dirs.map((d) => ({ path: d, name: this.folderName(d) })))) return false;
+    await this.state.update(AUTO_OPENED_AT, Date.now());
+    this.log.appendLine('[focus] empty window: opening the agent workspace');
+    await vscode.commands.executeCommand('vscode.openFolder', vscode.Uri.file(agentWorkspaceFile()), { forceReuseWindow: true });
+    return true;
+  }
+
+  /** Writes the agent workspace file with these folders, keeping other settings in it. */
+  private writeAgentWorkspace(folders: { path: string; name?: string }[]): boolean {
+    const file = agentWorkspaceFile();
+    let ws: { folders?: unknown[]; [k: string]: unknown } = {};
+    try {
+      ws = JSON.parse(fs.readFileSync(file, 'utf8'));
+    } catch {
+      // new file, or not plain JSON: start fresh
+    }
+    ws.folders = folders;
+    try {
+      fs.mkdirSync(path.dirname(file), { recursive: true });
+      fs.mkdirSync(this.cfg().worktreesRoot, { recursive: true });
+      fs.writeFileSync(file, JSON.stringify(ws, null, 2) + '\n');
+      return true;
+    } catch (e) {
+      void this.fail('Could not write the agent workspace', e);
+      return false;
+    }
+  }
+
   private async switchToAgentWorkspace(s: Session, dir: string, confirmed = false): Promise<void> {
     if (this.declinedWorkspaceSwitch) return;
+    // An empty window has nothing to lose: switch without asking.
+    if (!vscode.workspace.workspaceFolders?.length && !vscode.workspace.workspaceFile) confirmed = true;
     const file = agentWorkspaceFile();
     const open = 'Open Agent Workspace';
     const notNow = 'Not Now';
@@ -655,25 +700,13 @@ export class SessionActions {
 
     const current = vscode.workspace.workspaceFolders?.[0]?.uri;
     const anchor = current && current.fsPath !== dir ? current.fsPath : s.tmux.repo;
-    let ws: { folders?: unknown[]; [k: string]: unknown } = {};
-    try {
-      ws = JSON.parse(fs.readFileSync(file, 'utf8'));
-    } catch {
-      // new file, or not plain JSON: start fresh
-    }
     // Folder 0 is a stable anchor (changing it restarts the extension host); agent worktrees go after
     // it. activeSessions anchors on the worktrees root and lists only the running sessions.
     const root = this.cfg().worktreesRoot;
-    ws.folders = this.cfg().focusMode === 'activeSessions'
+    const folders = this.cfg().focusMode === 'activeSessions'
       ? [root, ...new Set([dir, ...this.activeSessionDirs()].filter((d) => d !== root))].map((d) => ({ path: d, name: this.folderName(d) }))
-      : [...(anchor && anchor !== dir ? [{ path: anchor }] : []), { path: dir, name: workspaceFolderName(this.cfg().worktreesRoot, dir) }];
-    try {
-      fs.mkdirSync(path.dirname(file), { recursive: true });
-      fs.mkdirSync(root, { recursive: true });
-      fs.writeFileSync(file, JSON.stringify(ws, null, 2) + '\n');
-    } catch (e) {
-      return void this.fail('Could not write the agent workspace', e);
-    }
+      : [...(anchor && anchor !== dir ? [{ path: anchor }] : []), { path: dir, name: workspaceFolderName(root, dir) }];
+    if (!this.writeAgentWorkspace(folders)) return;
     await this.state.update(PENDING_FOCUS, { name: s.name, at: Date.now() });
     this.log.appendLine(`[focus] switching window to ${file}`);
     await vscode.commands.executeCommand('vscode.openFolder', vscode.Uri.file(file), { forceReuseWindow: true });

@@ -8,7 +8,7 @@ import { findRepos, missingDependencies, parseRepoLink, parseStatus as parseGitS
 import { agyCwd, agyPrompt, parseClaudeLines, parseCodexLines, protoStrings, readAgyHistory, readClaudeHistory, readCodexHistory } from '../core/history';
 import { commandAvailable } from '../core/agents';
 import { kindOf, parseStat } from '../core/processes';
-import { hookScript, mergeClaudeHooks, mergeCodexNotify, parseStatus, readStatuses } from '../core/status';
+import { hookScript, mergeClaudeHooks, mergeCodexHooks, mergeCodexNotify, parseStatus, readStatuses } from '../core/status';
 import { isEmptyServerError, parsePanes, parseSessions } from '../core/tmux';
 import { isWithin, repoShortName, shQuote, slugify, tmuxSafe } from '../core/util';
 
@@ -243,6 +243,16 @@ test('status parsing', () => {
   assert.equal(st({ type: 'agent-turn-complete', 'thread-id': 't', 'last-assistant-message': 'ok' }, 'codex')?.state, 'idle');
   assert.equal(st({ hook_event_name: 'Stop' })?.tmuxSession, 'p-x');
   assert.equal(st({ hook_event_name: 'Stop' }, 'claude', '')?.tmuxSession, undefined);
+  // Codex hooks
+  assert.equal(st({ hook_event_name: 'UserPromptSubmit', session_id: 's' }, 'codex')?.state, 'running');
+  assert.equal(st({ hook_event_name: 'PreToolUse', tool_name: 'Bash' }, 'codex')?.state, 'running');
+  const perm = st({ hook_event_name: 'PermissionRequest', tool_name: 'Bash', tool_input: { command: 'rm -rf x', description: 'Delete the build folder' } }, 'codex');
+  assert.deepEqual([perm?.state, perm?.message], ['waiting', 'Delete the build folder']);
+  assert.equal(st({ hook_event_name: 'PermissionRequest', tool_name: 'Bash', tool_input: { description: null } }, 'codex')?.message, 'Codex wants to use Bash');
+  const stop = st({ hook_event_name: 'Stop', session_id: 's', last_assistant_message: 'Done' }, 'codex');
+  assert.deepEqual([stop?.state, stop?.chatId, stop?.message], ['idle', 's', 'Done']);
+  assert.equal(st({ hook_event_name: 'Interrupt' }, 'codex')?.state, 'idle');
+  assert.equal(st({ hook_event_name: 'SessionEnd' }, 'codex')?.state, 'ended');
 });
 
 test('hook script end to end', { skip: process.platform === 'win32' }, () => {
@@ -257,12 +267,14 @@ test('hook script end to end', { skip: process.platform === 'win32' }, () => {
   delete env2.DEVBOX_AGENTS_SESSION;
   execFileSync(script, ['claude'], { input: '{"session_id": "abc-123", "hook_event_name": "Stop"}', env: env2 });
   execFileSync(script, ['codex', '{"type":"agent-turn-complete","thread-id":"t-9","cwd":"/r/b"}'], { env: env2 });
+  execFileSync(script, ['codex'], { input: '{"session_id":"c-7","hook_event_name":"PermissionRequest","tool_name":"Bash","cwd":"/r/c"}', env: env2 });
   execFileSync(script, ['claude'], { input: 'not json', env: env2 });
   const all = readStatuses(statusDir).sort((a, b) => a.key.localeCompare(b.key));
   assert.deepEqual(
     all.map((s) => [s.key, s.agent, s.state, s.tmuxSession ?? '']),
     [
       ['claude-abc-123', 'claude', 'idle', ''],
+      ['codex-c-7', 'codex', 'waiting', ''],
       ['codex-t-9', 'codex', 'idle', ''],
       ['proj-fix', 'claude', 'waiting', 'proj-fix'],
     ],
@@ -280,6 +292,17 @@ test('claude hooks merge keeps existing settings', () => {
   assert.equal(o.hooks.Notification[0].hooks[0].command, '/h/devbox-agents/agent-hook.sh claude');
   assert.equal(mergeClaudeHooks(merged, '/h/devbox-agents/agent-hook.sh'), undefined);
   assert.throws(() => mergeClaudeHooks('{ broken', '/x'));
+});
+
+test('codex hooks merge', () => {
+  const merged = mergeCodexHooks(undefined, '/h/devbox-agents/agent-hook.sh')!;
+  const o = JSON.parse(merged);
+  assert.equal(o.hooks.PermissionRequest[0].matcher, '*');
+  assert.equal(o.hooks.UserPromptSubmit[0].hooks[0].command, '/h/devbox-agents/agent-hook.sh codex');
+  assert.equal(o.hooks.SessionEnd[0].hooks[0].timeout, 3);
+  assert.equal(mergeCodexHooks(merged, '/h/devbox-agents/agent-hook.sh'), undefined);
+  const mine = JSON.stringify({ hooks: { PreToolUse: [{ matcher: 'Bash', hooks: [{ type: 'command', command: 'policy.sh' }] }] } });
+  assert.equal(JSON.parse(mergeCodexHooks(mine, '/h/devbox-agents/agent-hook.sh')!).hooks.PreToolUse.length, 2);
 });
 
 test('codex notify merge', () => {

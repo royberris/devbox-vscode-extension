@@ -26,6 +26,7 @@ export interface Config {
   tmuxPath: string;
   shell: string;
   sessionEnv: Record<string, string>;
+  openAgentWorkspaceOnStart: boolean;
   focusMode: 'activeSessions' | 'swapFolder' | 'addFolder' | 'newWindow' | 'terminalOnly';
   terminalLocation: 'panel' | 'editor';
   connectIdeOnFocus: boolean;
@@ -61,6 +62,7 @@ export function readConfig(): Config {
     shell: expandHome(str('shell', process.env.SHELL || '/bin/bash')),
     sessionEnv: c.get<Record<string, string>>('sessionEnv', {}),
     focusMode: c.get('focusMode', 'activeSessions'),
+    openAgentWorkspaceOnStart: c.get<boolean>('openAgentWorkspaceOnStart', true),
     terminalLocation: c.get('terminalLocation', 'panel'),
     connectIdeOnFocus: c.get<boolean>('connectIdeOnFocus', false),
     refreshInterval: Math.max(1, c.get<number>('refreshInterval', 5)),

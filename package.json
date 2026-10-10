@@ -676,6 +676,11 @@
           "default": "activeSessions",
           "description": "What happens with the explorer when you focus a session."
         },
+        "devboxAgents.openAgentWorkspaceOnStart": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "With `#devboxAgents.focusMode#` set to `activeSessions`: when a window opens without a folder (e.g. a new Remote-SSH connection), switch it to the agent workspace right away instead of on the first focus. Windows with a folder or workspace of their own are left alone."
+        },
         "devboxAgents.terminalLocation": {
           "type": "string",
           "enum": [
