@@ -8,7 +8,7 @@ import * as git from './core/git';
 import type { Chat } from './core/history';
 import { deleteStatus } from './core/status';
 import { OPT, SESSION_ENV } from './core/tmux';
-import { AGENT_KINDS, AGENT_LABEL, expandHome, isWithin, randomSlug, repoShortName, shQuote, slugify, tildify, tmuxSafe, type AgentKind } from './core/util';
+import { AGENT_KINDS, AGENT_LABEL, isWithin, randomSlug, repoShortName, shQuote, slugify, tildify, tmuxSafe, type AgentKind } from './core/util';
 import type { Model, Session } from './model';
 
 const TERMINAL_PREFIX = 'agent: ';

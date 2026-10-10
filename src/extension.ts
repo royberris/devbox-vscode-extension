@@ -216,10 +216,20 @@ export function deactivate(): void {}
 
 const HOOKS_PROMPT_DISMISSED = 'devboxAgents.hooksPromptDismissed';
 
+/** File contents, or undefined when it does not exist (one call, so no check-then-read race). */
+function readIfExists(file: string): string | undefined {
+  try {
+    return fs.readFileSync(file, 'utf8');
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code === 'ENOENT') return undefined;
+    throw e;
+  }
+}
+
 /** True when a merge would change the file, i.e. some of our hooks are missing from it. */
 function hooksMissingIn(file: string, merge: (existing: string | undefined, script: string) => string | undefined): boolean {
   try {
-    return merge(fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : undefined, defaultHookScriptPath()) !== undefined;
+    return merge(readIfExists(file), defaultHookScriptPath()) !== undefined;
   } catch {
     return false; // unreadable file: installing would fail too
   }
@@ -289,10 +299,10 @@ async function installHooks(cfg: typeof readConfig, log: vscode.OutputChannel): 
     done.push(`script ${tildify(script)}`);
 
     if (c.agents.claude.enabled) {
-      const existing = fs.existsSync(claudeSettings) ? fs.readFileSync(claudeSettings, 'utf8') : undefined;
+      const existing = readIfExists(claudeSettings);
       const merged = mergeClaudeHooks(existing, script);
       if (merged) {
-        if (existing !== undefined) fs.copyFileSync(claudeSettings, `${claudeSettings}.devbox-agents.bak`);
+        if (existing !== undefined) fs.writeFileSync(`${claudeSettings}.devbox-agents.bak`, existing);
         fs.mkdirSync(path.dirname(claudeSettings), { recursive: true });
         fs.writeFileSync(claudeSettings, merged);
         done.push(`Claude hooks in ${tildify(claudeSettings)}`);
@@ -302,20 +312,20 @@ async function installHooks(cfg: typeof readConfig, log: vscode.OutputChannel): 
     }
 
     if (withCodex) {
-      const existingHooks = fs.existsSync(codexHooks) ? fs.readFileSync(codexHooks, 'utf8') : undefined;
+      const existingHooks = readIfExists(codexHooks);
       const mergedHooks = mergeCodexHooks(existingHooks, script);
       if (mergedHooks) {
-        if (existingHooks !== undefined) fs.copyFileSync(codexHooks, `${codexHooks}.devbox-agents.bak`);
+        if (existingHooks !== undefined) fs.writeFileSync(`${codexHooks}.devbox-agents.bak`, existingHooks);
         fs.writeFileSync(codexHooks, mergedHooks);
         done.push(`Codex hooks in ${tildify(codexHooks)} (trust them once with /hooks in Codex)`);
       } else {
         done.push('Codex hooks (already present)');
       }
 
-      const existing = fs.existsSync(codexConfig) ? fs.readFileSync(codexConfig, 'utf8') : undefined;
+      const existing = readIfExists(codexConfig);
       const r = mergeCodexNotify(existing, script);
       if (r.kind === 'updated') {
-        if (existing !== undefined) fs.copyFileSync(codexConfig, `${codexConfig}.devbox-agents.bak`);
+        if (existing !== undefined) fs.writeFileSync(`${codexConfig}.devbox-agents.bak`, existing);
         fs.writeFileSync(codexConfig, r.text);
         done.push(`Codex notify in ${tildify(codexConfig)}`);
       } else if (r.kind === 'conflict') {
