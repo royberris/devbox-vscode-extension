@@ -330,7 +330,7 @@ test('github remote parsing', () => {
 
 test('merged pull request selection', async () => {
   const pull = (n: number, ref: string, merged: string | null, repo = 'O/R') => ({
-    number: n, title: `pr ${n}`, html_url: `https://github.com/o/r/pull/${n}`, merged_at: merged, head: { ref, sha: `sha${n}`, repo: { full_name: repo } },
+    number: n, title: `pr ${n}`, html_url: `https://github.com/o/r/pull/${n}`, merged_at: merged, head: { ref, sha: String(n).repeat(40), repo: { full_name: repo } },
   });
   const pulls = [
     pull(1, 'agent/x', '2026-01-01T00:00:00Z'),
@@ -339,7 +339,11 @@ test('merged pull request selection', async () => {
     pull(4, 'agent/x', '2026-03-01T00:00:00Z', 'fork/r'),
     pull(5, 'agent/y', '2026-03-01T00:00:00Z'),
   ];
-  assert.deepEqual(pickMergedPull(pulls, 'o', 'r', 'agent/x'), { number: 3, title: 'pr 3', url: 'https://github.com/o/r/pull/3', headSha: 'sha3' });
+  assert.deepEqual(pickMergedPull(pulls, 'o', 'r', 'agent/x'), { number: 3, title: 'pr 3', url: 'https://github.com/o/r/pull/3', headSha: '3'.repeat(40) });
+  // API values that end up in git arguments or openExternal are checked
+  const odd = (sha: string, html_url: string) => [{ ...pull(6, 'agent/w', '2026-01-01T00:00:00Z'), html_url, head: { ref: 'agent/w', sha, repo: { full_name: 'o/r' } } }];
+  assert.equal(pickMergedPull(odd('--output=/tmp/x', 'https://github.com/o/r/pull/6'), 'o', 'r', 'agent/w'), undefined);
+  assert.equal(pickMergedPull(odd('a'.repeat(40), 'file:///etc/passwd'), 'o', 'r', 'agent/w')?.url, 'https://github.com/o/r/pull/6');
   assert.equal(pickMergedPull(pulls, 'o', 'r', 'agent/z'), undefined);
 
   let url = '';

@@ -26,7 +26,12 @@ export function pickMergedPull(pulls: ApiPull[], owner: string, repo: string, br
   const p = pulls
     .filter((p) => p.merged_at && p.head.ref === branch && p.head.repo?.full_name.toLowerCase() === full)
     .sort((a, b) => Date.parse(b.merged_at!) - Date.parse(a.merged_at!))[0];
-  return p && { number: p.number, title: p.title, url: p.html_url, headSha: p.head.sha };
+  if (!p) return undefined;
+  // API data ends up in git arguments and in openExternal: accept only a commit hash and a GitHub link.
+  const sha = String(p.head.sha);
+  if (!/^[0-9a-f]{40}(?:[0-9a-f]{24})?$/.test(sha)) return undefined;
+  const url = String(p.html_url);
+  return { number: Number(p.number), title: String(p.title), url: url.startsWith('https://github.com/') ? url : `https://github.com/${owner}/${repo}/pull/${Number(p.number)}`, headSha: sha };
 }
 
 export class GitHubError extends Error {

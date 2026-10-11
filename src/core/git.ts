@@ -296,7 +296,7 @@ export async function branchHead(repo: string, branch: string): Promise<string |
 
 /** True when commit `a` is `b` or an ancestor of it (false when either is unknown locally). */
 export async function isAncestor(repo: string, a: string, b: string): Promise<boolean> {
-  return (await run('git', ['-C', repo, 'merge-base', '--is-ancestor', a, b])).code === 0;
+  return (await run('git', ['-C', repo, 'merge-base', '--is-ancestor', '--end-of-options', a, b])).code === 0;
 }
 
 /** Force delete (-D): after a squash or rebase merge git does not see the branch as merged. */
