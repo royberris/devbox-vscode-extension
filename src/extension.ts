@@ -170,6 +170,10 @@ export function activate(context: vscode.ExtensionContext): void {
     const s = sessionOf(arg);
     if (s) return actions.connectIde(s);
   });
+  reg('devboxAgents.pasteImage', async (arg?: SessionArg) => {
+    const s = sessionOf(arg) ?? (await pickSessionForPaste(model, actions));
+    if (s) return actions.pasteImage(model.findSession(s.name) ?? s);
+  });
   reg('devboxAgents.stopSession', (arg?: SessionArg) => {
     const s = sessionOf(arg);
     if (s) return actions.stop(s);
@@ -213,6 +217,19 @@ export function activate(context: vscode.ExtensionContext): void {
 }
 
 export function deactivate(): void {}
+
+/** From the command palette: the session of the active agent terminal, else pick one. */
+async function pickSessionForPaste(model: Model, actions: SessionActions): Promise<Session | undefined> {
+  const fromTerminal = actions.sessionOfTerminal(vscode.window.activeTerminal);
+  if (fromTerminal) return model.findSession(fromTerminal);
+  const sessions = model.allSessions();
+  if (sessions.length <= 1) return sessions[0];
+  const pick = await vscode.window.showQuickPick(
+    sessions.map((s) => ({ label: s.name, description: s.agent ? AGENT_LABEL[s.agent] : undefined, session: s })),
+    { title: 'Paste image into session' },
+  );
+  return pick?.session;
+}
 
 const HOOKS_PROMPT_DISMISSED = 'devboxAgents.hooksPromptDismissed';
 

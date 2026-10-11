@@ -7,6 +7,7 @@ import { test } from 'node:test';
 import { findRepos, missingDependencies, parseRepoLink, parseStatus as parseGitStatus, parseWorktrees } from '../core/git';
 import { agyCwd, agyPrompt, parseClaudeLines, parseCodexLines, protoStrings, readAgyHistory, readClaudeHistory, readCodexHistory } from '../core/history';
 import { commandAvailable } from '../core/agents';
+import { pruneImages, saveImage } from '../core/paste';
 import { kindOf, parseStat } from '../core/processes';
 import { hookScript, mergeClaudeHooks, mergeCodexHooks, mergeCodexNotify, parseStatus, readStatuses } from '../core/status';
 import { isEmptyServerError, parsePanes, parseSessions } from '../core/tmux';
@@ -313,4 +314,24 @@ test('codex notify merge', () => {
     assert.equal(mergeCodexNotify(r.text, '/h/devbox-agents/agent-hook.sh').kind, 'unchanged');
   }
   assert.equal(mergeCodexNotify('notify = ["other"]\n', '/x').kind, 'conflict');
+});
+
+test('pasted images', () => {
+  const dir = path.join(tmp(), 'paste');
+  const png = Buffer.from([0x89, 0x50, 0x4e, 0x47]).toString('base64');
+  const at = new Date('2026-10-11T09:08:07.123Z');
+  const a = saveImage(dir, 'web:fix x', 'image/png', png, at);
+  assert.equal(path.basename(a), 'web-fix-x-2026-10-11-09-08-07.png');
+  assert.equal(path.basename(saveImage(dir, 'web:fix x', 'image/png', png, at)), 'web-fix-x-2026-10-11-09-08-07-2.png');
+  assert.deepEqual([...fs.readFileSync(a)], [0x89, 0x50, 0x4e, 0x47]);
+  assert.throws(() => saveImage(dir, 's', 'image/svg+xml', png), /Unsupported/);
+  assert.throws(() => saveImage(dir, 's', 'image/png', ''), /empty/);
+
+  fs.writeFileSync(path.join(dir, 'notes.txt'), 'keep');
+  const old = (Date.now() - 8 * 86_400_000) / 1000;
+  fs.utimesSync(a, old, old);
+  fs.utimesSync(path.join(dir, 'notes.txt'), old, old);
+  assert.deepEqual(pruneImages(dir, 7), [a]);
+  assert.deepEqual(fs.readdirSync(dir).sort(), ['notes.txt', 'web-fix-x-2026-10-11-09-08-07-2.png']);
+  assert.deepEqual(pruneImages(path.join(dir, 'missing'), 7), []);
 });

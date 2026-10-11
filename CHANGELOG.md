@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- *Paste Image from Clipboard* on a session: press `⌘V` in a small panel (or drop an image) to upload a screenshot from your laptop to the server and paste its path into the session. Claude Code attaches it as `[Image #1]`. Images go to `~/.local/state/devbox-agents/paste` and are deleted after 7 days.
+- The agent workspace shows the pasted images folder as its second folder.
+
 ## 1.0.0
 
 - Recommended layout (explorer with sessions left, file in the middle, agent terminal right) with a screenshot in the README and on the Marketplace page.

@@ -149,6 +149,7 @@ A process started by a VS Code extension on a remote host stops when VS Code has
 - **Process overview:** every `claude`/`codex`/`agy` process with PID, start time, working directory and origin: `tmux:<session>`, `ssh`, `VS Code server`, `daemon` (Codex's managed app-server) or **orphaned**. Leftover and orphaned processes are highlighted, but **never killed automatically** (you can terminate one by hand, with confirmation).
 - **History:** past chats of all agents, grouped by repository/worktree and titled the way the agents name them (Antigravity: by the first prompt). *Resume* reopens a chat (`claude --resume` / `codex resume` / `agy --conversation`) in a new tmux session in its original directory. If the chat is already running somewhere, that session is focused instead.
 - **Notifications when an agent waits for you** (permission or question) or finishes its turn, with a badge and a status bar counter. On reconnect you get one summary of the agents that are waiting. This needs the status hooks, see below.
+- **Paste screenshots:** `⌘V` in the terminal cannot paste images, because the agent runs on the server and cannot reach your laptop's clipboard. Click *Paste Image from Clipboard* (image icon) on a session instead and press `⌘V` in the panel that opens (or drop an image there). The image is saved on the server in `~/.local/state/devbox-agents/paste` and its path is pasted into the session. Claude Code turns it into `[Image #1]`. Pasted images are deleted after 7 days.
 - **Diffs in the editor:** *Connect Claude to Editor* types `/ide` into the session, so Claude Code shows its diffs in VS Code. This needs the Claude Code VS Code extension in the same window.
 - **Nothing in your repositories:** the extension's state lives in tmux session options and in `~/.local/state/devbox-agents`. Worktrees go outside your repositories by default.
 
@@ -173,7 +174,7 @@ A process started by a VS Code extension on a remote host stops when VS Code has
 | `devboxAgents.tmuxPath` | `tmux` | tmux binary |
 | `devboxAgents.shell` | `$SHELL` | Login shell the agent runs in; stays open after the agent exits |
 | `devboxAgents.sessionEnv` | `{}` | Extra environment variables for agent sessions |
-| `devboxAgents.focusMode` | `activeSessions` | `activeSessions` (the agent workspace shows the worktrees root, then only the running sessions' worktrees), `swapFolder`, `addFolder`, `newWindow` or `terminalOnly` |
+| `devboxAgents.focusMode` | `activeSessions` | `activeSessions` (the agent workspace shows the worktrees root, the pasted images folder, then only the running sessions' worktrees), `swapFolder`, `addFolder`, `newWindow` or `terminalOnly` |
 | `devboxAgents.openAgentWorkspaceOnStart` | `true` | Switch an empty window to the agent workspace when it opens (`activeSessions` only) |
 | `devboxAgents.terminalLocation` | `panel` | `panel` or `editor` |
 | `devboxAgents.connectIdeOnFocus` | `false` | Type `/ide` into a Claude session when it is focused |

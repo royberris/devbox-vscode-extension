@@ -7,6 +7,7 @@ Run Claude Code, Codex and Antigravity on your remote dev box, each agent in its
 - **One-step sessions.** Pick a repository and an agent; the extension creates a worktree on a new `agent/<name>` branch, opens a tmux session in it and starts the agent.
 - **Many agents at once.** Claude Code, Codex and Antigravity side by side, each isolated in its own worktree.
 - **Follow along.** Click a session and its terminal attaches and its worktree appears in the explorer.
+- **Paste screenshots.** `⌘V` in the terminal can't reach your laptop's clipboard from the server. *Paste Image from Clipboard* on a session uploads the image and pastes its path, which Claude Code attaches as an image.
 - **Get notified.** A notification, badge and status bar counter when an agent waits for permission or has finished its turn.
 - **Resume anything.** Browse past chats of every agent per repository and resume them in a fresh tmux session.
 - **Keep the server tidy.** See every running `claude`/`codex`/`agy` process, spot orphaned ones, and clean up worktrees only when they have no uncommitted changes.

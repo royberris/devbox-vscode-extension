@@ -6,14 +6,17 @@ import type { AgentAvailability } from './agents';
 import type { Config } from './config';
 import * as git from './core/git';
 import type { Chat } from './core/history';
+import { defaultPasteDir, pruneImages, saveImage } from './core/paste';
 import { deleteStatus } from './core/status';
 import { OPT, SESSION_ENV } from './core/tmux';
 import { AGENT_KINDS, AGENT_LABEL, isWithin, randomSlug, repoShortName, shQuote, slugify, tildify, tmuxSafe, type AgentKind } from './core/util';
 import type { Model, Session } from './model';
+import { pickImage } from './paste';
 
 const TERMINAL_PREFIX = 'agent: ';
 const PENDING_FOCUS = 'pendingFocus';
 const AUTO_OPENED_AT = 'autoOpenedAgentWorkspaceAt';
+const PASTE_KEEP_DAYS = 7;
 
 function agentWorkspaceFile(): string {
   const base = process.env.XDG_DATA_HOME || path.join(os.homedir(), '.local', 'share');
@@ -505,6 +508,11 @@ export class SessionActions {
     return t;
   }
 
+  /** The tmux session name of one of our terminals. */
+  sessionOfTerminal(t: vscode.Terminal | undefined): string | undefined {
+    return t?.name.startsWith(TERMINAL_PREFIX) ? t.name.slice(TERMINAL_PREFIX.length) : undefined;
+  }
+
   private findTerminal(name: string): vscode.Terminal | undefined {
     return vscode.window.terminals.find((t) => t.name === TERMINAL_PREFIX + name && t.exitStatus === undefined);
   }
@@ -568,7 +576,13 @@ export class SessionActions {
 
   private folderName(dir: string): string {
     const root = this.cfg().worktreesRoot;
+    if (dir === defaultPasteDir()) return 'Pasted images';
     return dir === root ? `${path.basename(root)} (all agent worktrees)` : (workspaceFolderName(root, dir) ?? path.basename(dir));
+  }
+
+  /** The first folders of the agent workspace: the worktrees root (never changes) and the pasted images. */
+  private fixedFolders(): string[] {
+    return [this.cfg().worktreesRoot, defaultPasteDir()];
   }
 
   /** Directories of the running sessions started by this extension: their worktree, or the checkout. */
@@ -578,9 +592,9 @@ export class SessionActions {
 
   /**
    * activeSessions mode: the agent workspace shows a fixed first folder (the worktrees root; changing
-   * folder 0 restarts the extension host, so it must never change) followed by exactly the running
-   * sessions' directories (plus `extra`, a session that may not be in the snapshot yet). Returns true
-   * if `extra` was added.
+   * folder 0 restarts the extension host, so it must never change), the pasted images folder, and
+   * then exactly the running sessions' directories (plus `extra`, a session that may not be in the
+   * snapshot yet). Returns true if `extra` was added.
    */
   syncWorkspaceFolders(extra?: string): Promise<boolean> {
     const run = this.folderSync.then(() => this.applyWorkspaceFolders(extra));
@@ -592,16 +606,19 @@ export class SessionActions {
     if (this.cfg().focusMode !== 'activeSessions' || !inAgentWorkspace()) return false;
     const snap = this.model.snapshot;
     if (snap.error || !snap.tmuxAvailable) return false; // a failed read is not "no sessions"
-    const root = this.cfg().worktreesRoot;
+    const fixed = this.fixedFolders();
     const current = (vscode.workspace.workspaceFolders ?? []).map((f) => f.uri.fsPath);
-    const active = this.activeSessionDirs().filter((d) => d !== root);
-    if (extra && extra !== root && !active.includes(extra)) active.push(extra);
-    const rest = current.slice(1);
-    const want = [root, ...rest.filter((d) => active.includes(d)), ...active.filter((d) => !rest.includes(d))];
+    const active = this.activeSessionDirs().filter((d) => !fixed.includes(d));
+    if (extra && !fixed.includes(extra) && !active.includes(extra)) active.push(extra);
+    const rest = current.filter((d) => !fixed.includes(d));
+    const want = [...fixed, ...rest.filter((d) => active.includes(d)), ...active.filter((d) => !rest.includes(d))];
     if (want.length === current.length && want.every((d, i) => d === current[i])) return false;
 
-    const start = current[0] === root ? 1 : 0;
-    if (start === 0) fs.mkdirSync(root, { recursive: true });
+    // Replace from the first difference on; folder 0 only if it is not the worktrees root yet.
+    let start = 0;
+    while (start < current.length && current[start] === want[start]) start++;
+    if (start === 0) fs.mkdirSync(fixed[0], { recursive: true });
+    fs.mkdirSync(fixed[1], { recursive: true });
     const changed = new Promise<void>((resolve) => {
       const sub = vscode.workspace.onDidChangeWorkspaceFolders(() => (sub.dispose(), resolve()));
       setTimeout(() => (sub.dispose(), resolve()), 3000);
@@ -635,8 +652,8 @@ export class SessionActions {
     // Back in an empty window right after an automatic switch: the workspace was closed on purpose
     // (or failed to open). Don't loop.
     if (Date.now() - (this.state.get<number>(AUTO_OPENED_AT) ?? 0) < 60_000) return false;
-    const root = cfg.worktreesRoot;
-    const dirs = [root, ...this.activeSessionDirs().filter((d) => d !== root)];
+    const fixed = this.fixedFolders();
+    const dirs = [...fixed, ...this.activeSessionDirs().filter((d) => !fixed.includes(d))];
     if (!this.writeAgentWorkspace(dirs.map((d) => ({ path: d, name: this.folderName(d) })))) return false;
     await this.state.update(AUTO_OPENED_AT, Date.now());
     this.log.appendLine('[focus] empty window: opening the agent workspace');
@@ -656,7 +673,7 @@ export class SessionActions {
     ws.folders = folders;
     try {
       fs.mkdirSync(path.dirname(file), { recursive: true });
-      fs.mkdirSync(this.cfg().worktreesRoot, { recursive: true });
+      for (const d of this.fixedFolders()) fs.mkdirSync(d, { recursive: true });
       fs.writeFileSync(file, JSON.stringify(ws, null, 2) + '\n');
       return true;
     } catch (e) {
@@ -703,8 +720,9 @@ export class SessionActions {
     // Folder 0 is a stable anchor (changing it restarts the extension host); agent worktrees go after
     // it. activeSessions anchors on the worktrees root and lists only the running sessions.
     const root = this.cfg().worktreesRoot;
+    const fixed = this.fixedFolders();
     const folders = this.cfg().focusMode === 'activeSessions'
-      ? [root, ...new Set([dir, ...this.activeSessionDirs()].filter((d) => d !== root))].map((d) => ({ path: d, name: this.folderName(d) }))
+      ? [...fixed, ...new Set([dir, ...this.activeSessionDirs()].filter((d) => !fixed.includes(d)))].map((d) => ({ path: d, name: this.folderName(d) }))
       : [...(anchor && anchor !== dir ? [{ path: anchor }] : []), { path: dir, name: workspaceFolderName(root, dir) }];
     if (!this.writeAgentWorkspace(folders)) return;
     await this.state.update(PENDING_FOCUS, { name: s.name, at: Date.now() });
@@ -755,6 +773,20 @@ export class SessionActions {
     } catch (e) {
       this.fail('Could not send /ide', e);
     }
+  }
+
+  /** Upload an image from the laptop's clipboard and paste its server path into the session. */
+  async pasteImage(s: Session): Promise<void> {
+    if (!(await this.stillExists(s))) return;
+    const dir = defaultPasteDir();
+    const pasted = await pickImage(`Paste into ${s.name}`, this.log, async (img) => {
+      const file = saveImage(dir, s.name, img.mime, img.data);
+      this.log.appendLine(`[paste] saved ${file} (${img.how})`);
+      await this.model.tmux.paste(s.name, `${file} `);
+    });
+    if (!pasted) return;
+    this.openTerminal(s);
+    for (const f of pruneImages(dir, PASTE_KEEP_DAYS)) this.log.appendLine(`[paste] removed ${f} (older than ${PASTE_KEEP_DAYS} days)`);
   }
 
   // ---- stopping and cleaning up -----------------------------------------------------------------

@@ -143,4 +143,13 @@ export class Tmux {
     const target = `=${name}:`;
     await this.execOk(['send-keys', '-t', target, '-l', text, ';', 'send-keys', '-t', target, 'Enter']);
   }
+
+  /**
+   * Paste text into the session's active pane as a bracketed paste (when the program asked for
+   * one), without Enter. Agents treat a pasted image path as an attachment.
+   */
+  async paste(name: string, text: string): Promise<void> {
+    const buffer = 'devbox-agents-paste';
+    await this.execOk(['set-buffer', '-b', buffer, '--', text, ';', 'paste-buffer', '-p', '-d', '-b', buffer, '-t', `=${name}:`]);
+  }
 }

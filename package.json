@@ -123,6 +123,12 @@
         "icon": "$(diff)"
       },
       {
+        "command": "devboxAgents.pasteImage",
+        "title": "Paste Image from Clipboard",
+        "category": "Devbox Agents",
+        "icon": "$(file-media)"
+      },
+      {
         "command": "devboxAgents.stopSession",
         "title": "Stop Session (keep worktree)",
         "category": "Devbox Agents",
@@ -281,6 +287,11 @@
           "group": "inline@1"
         },
         {
+          "command": "devboxAgents.pasteImage",
+          "when": "viewItem =~ /^session/",
+          "group": "inline@2"
+        },
+        {
           "command": "devboxAgents.cleanupSession",
           "when": "viewItem =~ /^session\\.managed/",
           "group": "inline@3"
@@ -299,6 +310,11 @@
           "command": "devboxAgents.connectIde",
           "when": "viewItem =~ /^session.*\\.claude/",
           "group": "1_open@3"
+        },
+        {
+          "command": "devboxAgents.pasteImage",
+          "when": "viewItem =~ /^session/",
+          "group": "1_open@4"
         },
         {
           "command": "devboxAgents.stopSession",
