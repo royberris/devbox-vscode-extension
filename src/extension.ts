@@ -110,6 +110,7 @@ export function activate(context: vscode.ExtensionContext): void {
     }
 
     void actions.syncWorkspaceFolders();
+    actions.removeStalePastes();
 
     if (firstSnapshot) {
       firstSnapshot = false;

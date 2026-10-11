@@ -6,7 +6,7 @@ import type { AgentAvailability } from './agents';
 import type { Config } from './config';
 import * as git from './core/git';
 import type { Chat } from './core/history';
-import { defaultPasteDir, pruneImages, saveImage } from './core/paste';
+import { defaultPasteDir, removeStaleImages, saveImage, sessionPasteDir } from './core/paste';
 import { deleteStatus } from './core/status';
 import { OPT, SESSION_ENV } from './core/tmux';
 import { AGENT_KINDS, AGENT_LABEL, isWithin, randomSlug, repoShortName, shQuote, slugify, tildify, tmuxSafe, type AgentKind } from './core/util';
@@ -16,7 +16,6 @@ import { pickImage } from './paste';
 const TERMINAL_PREFIX = 'agent: ';
 const PENDING_FOCUS = 'pendingFocus';
 const AUTO_OPENED_AT = 'autoOpenedAgentWorkspaceAt';
-const PASTE_KEEP_DAYS = 7;
 
 function agentWorkspaceFile(): string {
   const base = process.env.XDG_DATA_HOME || path.join(os.homedir(), '.local', 'share');
@@ -778,15 +777,21 @@ export class SessionActions {
   /** Upload an image from the laptop's clipboard and paste its server path into the session. */
   async pasteImage(s: Session): Promise<void> {
     if (!(await this.stillExists(s))) return;
-    const dir = defaultPasteDir();
+    const dir = sessionPasteDir(defaultPasteDir(), s.name);
     const pasted = await pickImage(`Paste into ${s.name}`, this.log, async (img) => {
-      const file = saveImage(dir, s.name, img.mime, img.data);
+      const file = saveImage(dir, img.mime, img.data);
       this.log.appendLine(`[paste] saved ${file} (${img.how})`);
       await this.model.tmux.paste(s.name, `${file} `);
     });
-    if (!pasted) return;
-    this.openTerminal(s);
-    for (const f of pruneImages(dir, PASTE_KEEP_DAYS)) this.log.appendLine(`[paste] removed ${f} (older than ${PASTE_KEEP_DAYS} days)`);
+    if (pasted) this.openTerminal(s);
+  }
+
+  /** Pasted images belong to their session: once the session is gone (stopped, cleaned up, killed), so are they. */
+  removeStalePastes(): void {
+    const snap = this.model.snapshot;
+    if (snap.error || !snap.tmuxAvailable) return; // a failed read is not "no sessions"
+    const live = this.model.allSessions().map((s) => s.name);
+    for (const f of removeStaleImages(defaultPasteDir(), live)) this.log.appendLine(`[paste] removed ${tildify(f)} (session ended)`);
   }
 
   // ---- stopping and cleaning up -----------------------------------------------------------------
