@@ -7,6 +7,7 @@ import { test } from 'node:test';
 import { findRepos, missingDependencies, parseRepoLink, parseStatus as parseGitStatus, parseWorktrees } from '../core/git';
 import { agyCwd, agyPrompt, parseClaudeLines, parseCodexLines, protoStrings, readAgyHistory, readClaudeHistory, readCodexHistory } from '../core/history';
 import { commandAvailable } from '../core/agents';
+import { removeStaleImages, saveImage, sessionPasteDir } from '../core/paste';
 import { kindOf, parseStat } from '../core/processes';
 import { hookScript, mergeClaudeHooks, mergeCodexHooks, mergeCodexNotify, parseStatus, readStatuses } from '../core/status';
 import { isEmptyServerError, parsePanes, parseSessions } from '../core/tmux';
@@ -313,4 +314,28 @@ test('codex notify merge', () => {
     assert.equal(mergeCodexNotify(r.text, '/h/devbox-agents/agent-hook.sh').kind, 'unchanged');
   }
   assert.equal(mergeCodexNotify('notify = ["other"]\n', '/x').kind, 'conflict');
+});
+
+test('pasted images', () => {
+  const root = path.join(tmp(), 'paste');
+  const png = Buffer.from([0x89, 0x50, 0x4e, 0x47]).toString('base64');
+  const at = new Date('2026-10-11T09:08:07.123Z');
+  const live = sessionPasteDir(root, 'web-fix');
+  const gone = sessionPasteDir(root, 'old/one.x');
+  assert.equal(path.basename(gone), 'old-one-x');
+  const a = saveImage(live, 'image/png', png, at);
+  assert.equal(path.basename(a), '2026-10-11-09-08-07.png');
+  assert.equal(path.basename(saveImage(live, 'image/png', png, at)), '2026-10-11-09-08-07-2.png');
+  assert.deepEqual([...fs.readFileSync(a)], [0x89, 0x50, 0x4e, 0x47]);
+  assert.throws(() => saveImage(live, 'image/svg+xml', png), /Unsupported/);
+  assert.throws(() => saveImage(live, 'image/png', ''), /empty/);
+
+  const b = saveImage(gone, 'image/jpeg', png, at);
+  const kept = saveImage(sessionPasteDir(root, 'other'), 'image/png', png, at);
+  fs.writeFileSync(path.join(path.dirname(kept), 'notes.txt'), 'mine');
+  fs.writeFileSync(path.join(root, 'loose.png'), 'x');
+  assert.deepEqual(removeStaleImages(root, ['web-fix']).sort(), [b, kept, path.join(root, 'loose.png')].sort());
+  assert.deepEqual(fs.readdirSync(root).sort(), ['other', 'web-fix'], 'empty folder removed, folder with other files kept');
+  assert.deepEqual(fs.readdirSync(live).length, 2);
+  assert.deepEqual(removeStaleImages(path.join(root, 'missing'), []), []);
 });

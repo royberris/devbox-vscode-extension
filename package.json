@@ -2,7 +2,7 @@
   "name": "devbox-agents",
   "displayName": "Devbox Agents",
   "description": "Start, follow and resume AI coding agents (Claude Code, Codex, Antigravity) in tmux sessions and git worktrees on your remote dev box. Agents keep running when your laptop is closed.",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "publisher": "royberris",
   "license": "MIT",
   "icon": "media/icon.png",
@@ -121,6 +121,12 @@
         "title": "Connect Claude to Editor (/ide)",
         "category": "Devbox Agents",
         "icon": "$(diff)"
+      },
+      {
+        "command": "devboxAgents.pasteImage",
+        "title": "Paste Image from Clipboard",
+        "category": "Devbox Agents",
+        "icon": "$(file-media)"
       },
       {
         "command": "devboxAgents.stopSession",
@@ -281,6 +287,11 @@
           "group": "inline@1"
         },
         {
+          "command": "devboxAgents.pasteImage",
+          "when": "viewItem =~ /^session/",
+          "group": "inline@2"
+        },
+        {
           "command": "devboxAgents.cleanupSession",
           "when": "viewItem =~ /^session\\.managed/",
           "group": "inline@3"
@@ -299,6 +310,11 @@
           "command": "devboxAgents.connectIde",
           "when": "viewItem =~ /^session.*\\.claude/",
           "group": "1_open@3"
+        },
+        {
+          "command": "devboxAgents.pasteImage",
+          "when": "viewItem =~ /^session/",
+          "group": "1_open@4"
         },
         {
           "command": "devboxAgents.stopSession",

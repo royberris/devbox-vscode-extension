@@ -79,6 +79,23 @@ test('tmux session lifecycle and process scan', { skip: !hasTmux || !processScan
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
+test('paste puts text into the pane without Enter', { skip: !hasTmux }, async () => {
+  const tmux = new Tmux('tmux', SOCKET);
+  const name = 'paste-session';
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'devbox-agents-tmux-'));
+  const out = path.join(dir, 'out');
+  await tmux.newSession({ name, cwd: dir, argv: ['/bin/sh', '-c', `cat > ${out}`], env: {}, options: {} });
+  try {
+    await tmux.paste(name, "/tmp/it's a.png ");
+    await tmux.sendLine(name, 'typed');
+    for (let i = 0; i < 50 && !fs.readFileSync(out, 'utf8').includes('\n'); i++) await new Promise((r) => setTimeout(r, 50));
+    assert.equal(fs.readFileSync(out, 'utf8'), "/tmp/it's a.png typed\n");
+  } finally {
+    await tmux.killSession(name);
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('server without sessions counts as empty, not as an error', { skip: !hasTmux }, async () => {
   const tmux = new Tmux('tmux', SOCKET);
   assert.deepEqual(await tmux.listSessions(), [], 'no server running');
