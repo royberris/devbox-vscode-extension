@@ -8,6 +8,7 @@ import type { Chat } from './core/history';
 import type { AgentProcess } from './core/processes';
 import { defaultHookScriptPath, hookScript, mergeClaudeHooks, mergeCodexHooks, mergeCodexNotify, type AgentStatus } from './core/status';
 import { AGENT_LABEL, oneLine, tildify } from './core/util';
+import { MergeWatcher } from './merged';
 import { HistoryModel, Model, type RepoGroup, type Session } from './model';
 import { SessionActions } from './sessions';
 import { HistoryProvider, ProcessesProvider, ReposProvider, SessionsProvider, sessionState } from './views';
@@ -26,7 +27,10 @@ export function activate(context: vscode.ExtensionContext): void {
   void agents.updateContext();
   const actions = new SessionActions(model, cfg, log, context.globalState, agents);
 
-  const sessionsProvider = new SessionsProvider(model, cfg);
+  const merges = new MergeWatcher(model, cfg, log, context.globalState, actions);
+  context.subscriptions.push(merges);
+
+  const sessionsProvider = new SessionsProvider(model, cfg, merges);
   const sessionsView = vscode.window.createTreeView('devboxAgents.sessions', { treeDataProvider: sessionsProvider, showCollapseAll: true });
   const reposView = vscode.window.createTreeView('devboxAgents.repos', { treeDataProvider: new ReposProvider(model, sessionsProvider, cfg) });
   const processesView = vscode.window.createTreeView('devboxAgents.processes', { treeDataProvider: new ProcessesProvider(model) });
@@ -73,6 +77,7 @@ export function activate(context: vscode.ExtensionContext): void {
       if (!e.affectsConfiguration('devboxAgents')) return;
       if (e.affectsConfiguration('devboxAgents.refreshInterval')) schedule();
       if (e.affectsConfiguration('devboxAgents.statusDir')) watchStatus();
+      if (e.affectsConfiguration('devboxAgents.promptCleanupOnMerge')) merges.soon();
       agents.clear();
       void agents.updateContext();
       void model.refresh();
@@ -176,7 +181,7 @@ export function activate(context: vscode.ExtensionContext): void {
   });
   reg('devboxAgents.cleanupSession', (arg?: SessionArg) => {
     const s = sessionOf(arg);
-    if (s) return actions.cleanup(s);
+    if (s) return actions.cleanup(s, merges.mergedPull(s));
   });
   reg('devboxAgents.startInWorktree', (arg: WorktreeArg) => actions.startInWorktree(arg.repo, arg.worktree));
   reg('devboxAgents.removeWorktree', (arg: WorktreeArg) => actions.removeWorktree(arg.repo, arg.worktree));
@@ -208,7 +213,7 @@ export function activate(context: vscode.ExtensionContext): void {
   reg('devboxAgents.openSettings', () => vscode.commands.executeCommand('workbench.action.openSettings', '@ext:royberris.devbox-agents'));
   reg('devboxAgents.showLog', () => log.show());
 
-  void model.refresh();
+  void model.refresh().then(() => merges.check());
   void history.refresh();
 }
 

@@ -35,6 +35,7 @@ export interface Config {
   historyMaxPerGroup: number;
   statusDir: string;
   notify: string[];
+  promptCleanupOnMerge: boolean;
 }
 
 export function readConfig(): Config {
@@ -70,5 +71,6 @@ export function readConfig(): Config {
     historyMaxPerGroup: Math.max(1, c.get<number>('history.maxPerGroup', 50)),
     statusDir: expandHome(str('statusDir', defaultStatusDir())),
     notify: c.get<string[]>('notify', ['waiting', 'idle']),
+    promptCleanupOnMerge: c.get<boolean>('promptCleanupOnMerge', true),
   };
 }

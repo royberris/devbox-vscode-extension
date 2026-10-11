@@ -719,6 +719,11 @@
           "scope": "machine",
           "markdownDescription": "Directory where the status hook writes agent states. Empty: `$XDG_STATE_HOME/devbox-agents/status` or `~/.local/state/devbox-agents/status`."
         },
+        "devboxAgents.promptCleanupOnMerge": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "When the pull request of a session's branch is merged on GitHub, offer to clean up the session: stop it, remove the worktree and delete the local branch. Uses the GitHub account you are signed in with in VS Code (Accounts menu); works without the GitHub Pull Requests extension."
+        },
         "devboxAgents.notify": {
           "type": "array",
           "items": {

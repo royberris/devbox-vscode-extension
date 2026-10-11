@@ -4,6 +4,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { test } from 'node:test';
+import { findMergedPull, parseGitHubRemote, pickMergedPull } from '../core/github';
 import { findRepos, missingDependencies, parseRepoLink, parseStatus as parseGitStatus, parseWorktrees } from '../core/git';
 import { agyCwd, agyPrompt, parseClaudeLines, parseCodexLines, protoStrings, readAgyHistory, readClaudeHistory, readCodexHistory } from '../core/history';
 import { commandAvailable } from '../core/agents';
@@ -313,4 +314,42 @@ test('codex notify merge', () => {
     assert.equal(mergeCodexNotify(r.text, '/h/devbox-agents/agent-hook.sh').kind, 'unchanged');
   }
   assert.equal(mergeCodexNotify('notify = ["other"]\n', '/x').kind, 'conflict');
+});
+
+test('github remote parsing', () => {
+  const r = { owner: 'royberris', repo: 'devbox-vscode-extension' };
+  assert.deepEqual(parseGitHubRemote('https://github.com/royberris/devbox-vscode-extension.git'), r);
+  assert.deepEqual(parseGitHubRemote('https://user@github.com/royberris/devbox-vscode-extension'), r);
+  assert.deepEqual(parseGitHubRemote('git@github.com:royberris/devbox-vscode-extension.git'), r);
+  assert.deepEqual(parseGitHubRemote('ssh://git@github.com:22/royberris/devbox-vscode-extension.git'), r);
+  assert.deepEqual(parseGitHubRemote('git@github.com:o/my.repo.git'), { owner: 'o', repo: 'my.repo' });
+  assert.equal(parseGitHubRemote('https://gitlab.com/o/r.git'), undefined);
+  assert.equal(parseGitHubRemote('https://github.com.evil.com/o/r.git'), undefined);
+  assert.equal(parseGitHubRemote(''), undefined);
+});
+
+test('merged pull request selection', async () => {
+  const pull = (n: number, ref: string, merged: string | null, repo = 'O/R') => ({
+    number: n, title: `pr ${n}`, html_url: `https://github.com/o/r/pull/${n}`, merged_at: merged, head: { ref, sha: `sha${n}`, repo: { full_name: repo } },
+  });
+  const pulls = [
+    pull(1, 'agent/x', '2026-01-01T00:00:00Z'),
+    pull(2, 'agent/x', null), // closed without merging
+    pull(3, 'agent/x', '2026-02-01T00:00:00Z'),
+    pull(4, 'agent/x', '2026-03-01T00:00:00Z', 'fork/r'),
+    pull(5, 'agent/y', '2026-03-01T00:00:00Z'),
+  ];
+  assert.deepEqual(pickMergedPull(pulls, 'o', 'r', 'agent/x'), { number: 3, title: 'pr 3', url: 'https://github.com/o/r/pull/3', headSha: 'sha3' });
+  assert.equal(pickMergedPull(pulls, 'o', 'r', 'agent/z'), undefined);
+
+  let url = '';
+  const fake = (async (u: string, init: RequestInit) => {
+    url = u;
+    assert.equal((init.headers as Record<string, string>).Authorization, 'Bearer tok');
+    return new Response(JSON.stringify(pulls), { status: 200 });
+  }) as typeof fetch;
+  assert.equal((await findMergedPull('o', 'r', 'agent/x', 'tok', fake))?.number, 3);
+  assert.match(url, /^https:\/\/api\.github\.com\/repos\/o\/r\/pulls\?state=closed&head=o%3Aagent%2Fx/);
+  const denied = (async () => new Response('', { status: 401 })) as typeof fetch;
+  await assert.rejects(findMergedPull('o', 'r', 'agent/x', 'tok', denied), (e: Error & { status?: number }) => e.status === 401);
 });

@@ -9,7 +9,7 @@ Run Claude Code, Codex and Antigravity on your remote dev box, each agent in its
 - **Follow along.** Click a session and its terminal attaches and its worktree appears in the explorer.
 - **Get notified.** A notification, badge and status bar counter when an agent waits for permission or has finished its turn.
 - **Resume anything.** Browse past chats of every agent per repository and resume them in a fresh tmux session.
-- **Keep the server tidy.** See every running `claude`/`codex`/`agy` process, spot orphaned ones, and clean up worktrees only when they have no uncommitted changes.
+- **Keep the server tidy.** See every running `claude`/`codex`/`agy` process, spot orphaned ones, and clean up worktrees only when they have no uncommitted changes. When a session's pull request is merged on GitHub, you are offered to clean it up, branch included.
 - **Repositories at a glance.** Branch, ahead/behind and local changes per repository, and clone a new one on the server by pasting a link.
 
 ## What you need

@@ -283,6 +283,27 @@ export async function clone(urls: string[], dir: string): Promise<string> {
   throw new Error(errors.join('\n'));
 }
 
+export async function remoteUrl(repo: string, remote = 'origin'): Promise<string | undefined> {
+  const r = await run('git', ['-C', repo, 'remote', 'get-url', remote]);
+  return r.code === 0 ? r.stdout.trim() || undefined : undefined;
+}
+
+/** Commit a local branch points to. */
+export async function branchHead(repo: string, branch: string): Promise<string | undefined> {
+  const r = await run('git', ['-C', repo, 'rev-parse', '--verify', '--quiet', `refs/heads/${branch}^{commit}`]);
+  return r.code === 0 ? r.stdout.trim() : undefined;
+}
+
+/** True when commit `a` is `b` or an ancestor of it (false when either is unknown locally). */
+export async function isAncestor(repo: string, a: string, b: string): Promise<boolean> {
+  return (await run('git', ['-C', repo, 'merge-base', '--is-ancestor', a, b])).code === 0;
+}
+
+/** Force delete (-D): after a squash or rebase merge git does not see the branch as merged. */
+export async function deleteBranch(repo: string, branch: string): Promise<void> {
+  await runOk('git', ['-C', repo, 'branch', '-D', '--', branch]);
+}
+
 export async function pruneWorktrees(repo: string): Promise<void> {
   await runOk('git', ['-C', repo, 'worktree', 'prune']);
 }

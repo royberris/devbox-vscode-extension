@@ -5,6 +5,7 @@ import * as vscode from 'vscode';
 import type { AgentAvailability } from './agents';
 import type { Config } from './config';
 import * as git from './core/git';
+import type { MergedPull } from './core/github';
 import type { Chat } from './core/history';
 import { deleteStatus } from './core/status';
 import { OPT, SESSION_ENV } from './core/tmux';
@@ -778,7 +779,12 @@ export class SessionActions {
     await this.model.refresh();
   }
 
-  async cleanup(s: Session): Promise<void> {
+  /**
+   * Stops the session and removes its worktree. With `merged` (its PR was merged) the local branch
+   * is deleted too, unless it has commits that are not in the PR. `confirmed`: the user already
+   * agreed in the merge notification, so no second dialog.
+   */
+  async cleanup(s: Session, merged?: MergedPull, confirmed = false): Promise<void> {
     const wt = s.tmux.worktree;
     const repo = s.tmux.repo;
     if (!wt || !repo) return this.stop(s);
@@ -787,16 +793,27 @@ export class SessionActions {
       return this.model.refresh();
     }
     if (!(await this.ensureClean(wt))) return;
-    const ahead = s.tmux.base ? await git.commitsAhead(wt, s.tmux.base) : undefined;
-    const branchNote = s.tmux.branch
-      ? `Branch ${s.tmux.branch} is kept${ahead ? ` (${ahead} commit${ahead === 1 ? '' : 's'} not in ${s.tmux.base})` : ''}.`
-      : '';
-    const ok = await vscode.window.showWarningMessage(
-      `Clean up "${s.name}"?`,
-      { modal: true, detail: `Stops the tmux session${s.processes.length ? ' and the agent in it' : ''} and removes the worktree ${tildify(wt)}. ${branchNote}` },
-      'Clean Up',
-    );
-    if (ok !== 'Clean Up') return;
+    const branch = s.tmux.branch;
+    const head = merged && branch ? await git.branchHead(repo, branch) : undefined;
+    const deleteBranch = !!(merged && branch && head && (await git.isAncestor(repo, head, merged.headSha)));
+    if (!confirmed) {
+      let branchNote = '';
+      if (deleteBranch) {
+        branchNote = `Deletes branch ${branch}: PR #${merged!.number} was merged.`;
+      } else if (merged && head) {
+        branchNote = `Branch ${branch} is kept: it has commits that are not in PR #${merged.number}.`;
+      } else if (branch) {
+        const ahead = s.tmux.base ? await git.commitsAhead(wt, s.tmux.base) : undefined;
+        branchNote = `Branch ${branch} is kept${ahead ? ` (${ahead} commit${ahead === 1 ? '' : 's'} not in ${s.tmux.base})` : ''}.`;
+      }
+      const ok = await vscode.window.showWarningMessage(
+        `Clean up "${s.name}"?`,
+        { modal: true, detail: `Stops the tmux session${s.processes.length ? ' and the agent in it' : ''} and removes the worktree ${tildify(wt)}. ${branchNote}` },
+        'Clean Up',
+      );
+      if (ok !== 'Clean Up') return;
+    }
+    const windowFolder = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath === wt;
     try {
       if (await this.model.tmux.hasSession(s.name)) await this.model.tmux.killSession(s.name);
       this.findTerminal(s.name)?.dispose();
@@ -804,8 +821,25 @@ export class SessionActions {
     } catch (e) {
       return void this.fail('Could not stop the session', e);
     }
-    await this.removeWorktreeChecked(repo, wt);
+    const removed = await this.removeWorktreeChecked(repo, wt);
+    if (removed && deleteBranch) {
+      try {
+        await git.deleteBranch(repo, branch!);
+        this.log.appendLine(`[cleanup] deleted branch ${branch} (PR #${merged!.number} merged)`);
+      } catch (e) {
+        this.fail(`Branch ${branch} not deleted`, e);
+      }
+    } else if (removed && merged && head && branch) {
+      this.log.appendLine(`[cleanup] kept branch ${branch}: ${head} is not the head of PR #${merged.number} (${merged.headSha})`);
+    }
     await this.model.refresh();
+    // The first folder cannot be removed without restarting the extension host; offer to close it instead.
+    if (removed && windowFolder) {
+      const close = 'Close Folder';
+      if ((await vscode.window.showInformationMessage(`This window's folder ${tildify(wt)} was removed.`, close)) === close) {
+        void vscode.commands.executeCommand('workbench.action.closeFolder');
+      }
+    }
   }
 
   async removeWorktree(repo: string, wt: git.Worktree): Promise<void> {
@@ -841,22 +875,25 @@ export class SessionActions {
     return false;
   }
 
-  private async removeWorktreeChecked(repo: string, dir: string): Promise<void> {
+  /** True when the worktree is gone afterwards. */
+  private async removeWorktreeChecked(repo: string, dir: string): Promise<boolean> {
     const folders = vscode.workspace.workspaceFolders ?? [];
     const idx = folders.findIndex((f) => f.uri.fsPath === dir);
     if (idx > 0) vscode.workspace.updateWorkspaceFolders(idx, 1);
     if (!fs.existsSync(dir)) {
       // Already deleted from disk: only git's bookkeeping is left.
       await git.pruneWorktrees(repo).catch((e) => this.log.appendLine(`[cleanup] prune failed: ${(e as Error).message}`));
-      return;
+      return true;
     }
     try {
       // No --force: git refuses by itself if anything changed since our check.
       await git.removeWorktree(repo, dir);
       this.log.appendLine(`[cleanup] removed worktree ${dir}`);
       void vscode.window.showInformationMessage(`Removed worktree ${tildify(dir)}.`);
+      return true;
     } catch (e) {
       this.fail('Worktree not removed', e);
+      return false;
     }
   }
 

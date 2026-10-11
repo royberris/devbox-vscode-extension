@@ -45,8 +45,22 @@ test('worktree lifecycle refuses dirty worktrees', async () => {
   assert.ok(fs.existsSync(wt));
 
   fs.unlinkSync(path.join(wt, 'new.txt'));
+  const head = await git.branchHead(repo, 'agent/task');
+  assert.match(head ?? '', /^[0-9a-f]{40}$/);
+  execFileSync('git', ['-C', wt, '-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-q', '--allow-empty', '-m', 'more']);
+  const newer = (await git.branchHead(repo, 'agent/task'))!;
+  assert.ok(await git.isAncestor(repo, head!, newer));
+  assert.ok(await git.isAncestor(repo, newer, newer));
+  assert.ok(!(await git.isAncestor(repo, newer, head!)));
+  assert.ok(!(await git.isAncestor(repo, newer, '0'.repeat(40))));
+  await assert.rejects(git.deleteBranch(repo, 'agent/task'), /checked out|used by worktree/);
   await git.removeWorktree(repo, wt);
   assert.ok(!fs.existsSync(wt));
+  await git.deleteBranch(repo, 'agent/task');
+  assert.equal(await git.branchHead(repo, 'agent/task'), undefined);
+  assert.equal(await git.remoteUrl(repo), undefined);
+  execFileSync('git', ['-C', repo, 'remote', 'add', 'origin', 'git@github.com:o/r.git']);
+  assert.equal(await git.remoteUrl(repo), 'git@github.com:o/r.git');
   fs.rmSync(base, { recursive: true, force: true });
 });
 

@@ -6,6 +6,7 @@ import type { Chat } from './core/history';
 import type { AgentProcess, Origin } from './core/processes';
 import type { AgentState } from './core/status';
 import { AGENT_ICON, AGENT_LABEL, formatDateTime, relativeTime, repoShortName, tildify } from './core/util';
+import type { MergeWatcher } from './merged';
 import type { ChatGroup, HistoryModel, Model, RepoGroup, RepoInfo, Session } from './model';
 
 // ---- Sessions ------------------------------------------------------------------------------------
@@ -34,8 +35,9 @@ export class SessionsProvider implements vscode.TreeDataProvider<SessionNode> {
   private readonly emitter = new vscode.EventEmitter<void>();
   readonly onDidChangeTreeData = this.emitter.event;
 
-  constructor(private readonly model: Model, private readonly cfg: () => Config) {
+  constructor(private readonly model: Model, private readonly cfg: () => Config, private readonly merges: MergeWatcher) {
     model.onDidChange(() => this.emitter.fire());
+    merges.onDidChange(() => this.emitter.fire());
   }
 
   getChildren(node?: SessionNode): SessionNode[] {
@@ -95,7 +97,8 @@ export class SessionsProvider implements vscode.TreeDataProvider<SessionNode> {
     const label = s.managed && s.name.startsWith(short) ? s.name.slice(short.length) : s.name;
     const item = new vscode.TreeItem(label, vscode.TreeItemCollapsibleState.None);
     item.id = `session:${s.name}`;
-    const parts = [s.agent ? AGENT_LABEL[s.agent] : 'shell', s.tmux.branch, s.agent ? state.text : undefined].filter(Boolean);
+    const merged = this.merges.mergedPull(s);
+    const parts = [s.agent ? AGENT_LABEL[s.agent] : 'shell', s.tmux.branch, merged ? `merged #${merged.number}` : undefined, s.agent ? state.text : undefined].filter(Boolean);
     item.description = parts.join(' · ');
     item.iconPath = s.agent ? state.icon : new vscode.ThemeIcon('terminal');
     // managed = own worktree (can be cleaned up), main = agent on a main checkout
@@ -110,6 +113,7 @@ export class SessionsProvider implements vscode.TreeDataProvider<SessionNode> {
       ['Directory', s.dir ? tildify(s.dir) : undefined],
       ['Branch', s.tmux.branch],
       ['Based on', s.tmux.base],
+      ['Pull request', merged ? `#${merged.number} merged` : undefined],
       ['Started', formatDateTime(s.tmux.created)],
       ['Attached clients', String(s.tmux.attachedClients)],
       ['Agent PIDs', s.processes.map((p) => p.pid).join(', ') || undefined],

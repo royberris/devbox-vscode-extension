@@ -140,7 +140,8 @@ A process started by a VS Code extension on a remote host stops when VS Code has
   The picker also shows the repository (the last one used, or the one open in the window) and the base branch. Select either one to change it. The agent you used last comes first.
 - **The explorer follows your focus:** click a session and its worktree becomes a workspace folder (or opens in a new window, see `devboxAgents.focusMode`), and a terminal attaches to the tmux session.
 - **Many agents at once,** Claude, Codex and Antigravity mixed, each with its own worktree.
-- **Clean up safely:** *Clean Up* stops the session and removes the worktree, but only if it has no uncommitted or untracked changes. Otherwise it refuses and lists the changes. The branch is always kept.
+- **Clean up safely:** *Clean Up* stops the session and removes the worktree, but only if it has no uncommitted or untracked changes. Otherwise it refuses and lists the changes. The branch is kept, unless its pull request was merged (see below).
+- **Clean up after a merge:** when the pull request of a session's branch is merged on GitHub (from the GitHub Pull Requests extension, github.com or `gh`), you get a notification offering to clean up: stop the session, remove the worktree and delete the local branch. Nothing happens while the local branch has commits that are not in the PR. The session shows *merged #12* in the tree. This uses the GitHub account you are signed in with in VS Code (Accounts menu), so the GitHub Pull Requests extension is not needed. Checks run when the window gets focus, when git sees a change (e.g. a fetch) and every 5 minutes. Turn it off with `devboxAgents.promptCleanupOnMerge`.
 - **Repositories view:** every repository with its branch, ahead/behind, uncommitted changes and a hint when dependencies are missing (`package.json` without `node_modules`). From there you can
   - start an agent **directly on the main checkout**, without a worktree, e.g. to install dependencies or manage the repo;
   - start a new worktree session;
@@ -181,6 +182,7 @@ A process started by a VS Code extension on a remote host stops when VS Code has
 | `devboxAgents.history.days` / `.maxPerGroup` | `30` / `50` | History range |
 | `devboxAgents.statusDir` | `~/.local/state/devbox-agents/status` | Where the status hook writes |
 | `devboxAgents.notify` | `["waiting","idle"]` | Which state changes show a notification |
+| `devboxAgents.promptCleanupOnMerge` | `true` | Offer to clean up a session when its pull request is merged on GitHub |
 
 ### Where to put worktrees
 
@@ -240,6 +242,7 @@ Sessions started by the extension carry `DEVBOX_AGENTS_SESSION=<tmux session>` i
 - **Sandboxed agents and worktrees:** a commit in a worktree writes to the *main* repository's `.git` directory. If your agent sandbox only allows writes below the working directory, add the repositories' `.git` directories to its writable paths, or commit outside the sandbox.
 - **Leftover processes:** the Claude Code VS Code extension sometimes leaves old `claude` processes behind after a reconnect. They show up as *VS Code server* or *orphaned* in *Agent Processes*.
 - **Codex's app-server daemon** (`codex app-server --managed-daemon`) is detached on purpose. It shows as `daemon`, not as orphaned.
+- **GitHub Pull Requests extension:** after a merge it offers to delete the branch, and to switch to the default branch. In a session's worktree both fail: the branch is checked out there and `main` is checked out in the main repository. Answer no and use *Clean Up* (or the merge notification) instead. Leave its `githubPullRequests.defaultDeletionMethod.selectWorktree` off: it removes the worktree without stopping the tmux session.
 - **Remote Control / mobile:** sessions are plain `claude`/`codex`/`agy` processes, so their own remote features work as usual. The extension does not integrate with them.
 
 ## Development
